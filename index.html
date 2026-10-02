@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Shuffle</title>
+<style>
+  body {
+    margin: 0;
+    padding: 24px 12px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 16px;
+    font-family: system-ui, sans-serif;
+    background: #f4f1ea;
+    color: #222;
+  }
+  h1 { margin: 0; }
+  .status { display: flex; gap: 24px; font-size: 1.1rem; }
+  #board {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 6px;
+    padding: 6px;
+    background: #8a7f6a;
+    border-radius: 8px;
+  }
+  .tile {
+    width: 90px;
+    height: 90px;
+    padding: 0;
+    border: none;
+    border-radius: 6px;
+    font-size: 2rem;
+    font-weight: 700;
+    background: #f2b84b;
+    color: #222;
+    cursor: pointer;
+  }
+  .tile:hover { background: #f7c96f; }
+  .tile.empty {
+    background: #5c5444;
+    box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.5);
+    cursor: default;
+  }
+  #shuffle {
+    padding: 10px 24px;
+    font-size: 1rem;
+    border: none;
+    border-radius: 6px;
+    background: #2f6f4f;
+    color: #fff;
+    cursor: pointer;
+  }
+  #message { min-height: 1.5em; font-size: 1.2rem; font-weight: 700; color: #2f6f4f; }
+  #message[hidden] { display: none; }
+</style>
+</head>
+<body>
+<h1>Shuffle</h1>
+<div class="status">
+  <span id="moves">Moves: 0</span>
+  <span id="timer">Time: 0s</span>
+</div>
+<div id="board"></div>
+<button id="shuffle" type="button">Shuffle</button>
+<div id="message" hidden>You solved it!</div>
+<script>
+const SIZE = 3;
+let tiles = [1, 2, 3, 4, 5, 6, 7, 8, 0]; // 0 is the empty space
+let moves = 0;
+let seconds = 0;
+let timerId = null;
+let frozen = false;
+
+// Rebuild the board DOM and counters from the current state, then check for a win.
+function render() {
+  const board = document.getElementById('board');
+  board.innerHTML = '';
+  tiles.forEach((value, i) => {
+    const btn = document.createElement('button');
+    btn.className = value === 0 ? 'tile empty' : 'tile';
+    btn.dataset.index = i;
+    btn.textContent = value === 0 ? '' : value;
+    board.appendChild(btn);
+  });
+  document.getElementById('moves').textContent = 'Moves: ' + moves;
+  document.getElementById('timer').textContent = 'Time: ' + seconds + 's';
+  checkWin();
+}
+
+// Slide the tile at index into the empty space if it is orthogonally adjacent.
+function move(index) {
+  const empty = tiles.indexOf(0);
+  if (index === empty) return;
+  const rowDiff = Math.abs(Math.floor(index / SIZE) - Math.floor(empty / SIZE));
+  const colDiff = Math.abs((index % SIZE) - (empty % SIZE));
+  const adjacent = (rowDiff === 0 && colDiff === 1) || (colDiff === 0 && rowDiff === 1);
+  if (!adjacent) return;
+  [tiles[index], tiles[empty]] = [tiles[empty], tiles[index]];
+  moves++;
+  if (timerId === null && !frozen) startTimer();
+  render();
+}
+
+// Randomly reorder the tiles and reset moves, timer and the frozen flag.
+function shuffle() {
+  tiles.sort(() => Math.random() - 0.5);
+  clearInterval(timerId);
+  timerId = null;
+  moves = 0;
+  seconds = 0;
+  frozen = false;
+  render();
+}
+
+// Show the win message when solved, and freeze the timer once a move has been made.
+function checkWin() {
+  const solved = tiles.every((value, i) => value === (i === tiles.length - 1 ? 0 : i + 1));
+  document.getElementById('message').hidden = !solved;
+  if (solved && moves > 0) {
+    clearInterval(timerId);
+    timerId = null;
+    frozen = true;
+  }
+}
+
+// Start the one-second timer, clearing any previous interval first.
+function startTimer() {
+  clearInterval(timerId);
+  timerId = setInterval(() => {
+    seconds++;
+    document.getElementById('timer').textContent = 'Time: ' + seconds + 's';
+  }, 1000);
+}
+
+document.getElementById('board').addEventListener('click', (e) => {
+  const tile = e.target.closest('.tile');
+  if (tile) move(Number(tile.dataset.index));
+});
+document.getElementById('shuffle').addEventListener('click', shuffle);
+
+render();
+</script>
+</body>
+</html>

@@ -1,0 +1,4 @@
+function render: present with comment
+function move: present with comment
+function shuffle: present with comment
+function checkWin: present with comment
