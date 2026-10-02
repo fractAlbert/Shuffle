@@ -4,6 +4,7 @@ const os = require('os');
 const path = require('path');
 const url = require('url');
 const { execSync } = require('child_process');
+if (!process.env.PW_DIR) { console.error('Set PW_DIR to the playwright package directory (see plan section 6).'); process.exit(2); }
 const { chromium } = require(process.env.PW_DIR);
 
 const ROOT = process.cwd();
@@ -39,7 +40,7 @@ async function main() {
     return { ctx, page };
   }
 
-  async function run(name, fn, { video = false } = {}) {
+  async function run(name, fn, { video = false, shoot = true } = {}) {
     const dir = path.join(OUT, name);
     fs.rmSync(dir, { recursive: true, force: true });
     fs.mkdirSync(dir, { recursive: true });
@@ -54,35 +55,14 @@ async function main() {
       failed = true;
       lines.push(`FAIL ${name}: ${e.message}`);
     } finally {
-      if (page) { try { await shot(page, dir); } catch (_) {} }
+      // Final-state screenshot only for UI checks, and never over a shot the check saved itself.
+      if (page && shoot && !fs.existsSync(path.join(dir, 'screenshot.png'))) { try { await shot(page, dir); } catch (_) {} }
       const vid = page && video ? page.video() : null;
       if (ctx) await ctx.close();
       if (vid) fs.copyFileSync(await vid.path(), path.join(dir, 'video.webm'));
       fs.writeFileSync(path.join(dir, 'output.txt'), log.join('\n') + '\n');
     }
   }
-
-  // single-file: AC1
-  await run('single-file', async ({ say }) => {
-    const sh = (c) => execSync(c, { encoding: 'utf8' }).split(/\r?\n/).filter(Boolean);
-    const changed = new Set([
-      ...sh(`git diff --name-only ${BASE}...HEAD`),
-      ...sh('git diff --name-only HEAD'),
-      ...sh('git diff --name-only --cached'),
-      ...sh('git ls-files --others --exclude-standard'),
-    ]);
-    say('changed set: ' + [...changed].join(', '));
-    const bad = [...changed].filter((f) => f !== 'index.html' && !f.startsWith('test-results/'));
-    eq(bad, [], 'files outside index.html and test-results/**');
-    ok(changed.has('index.html'), 'index.html not in change set');
-    const html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
-    const pats = { 'src=': /src=/, 'href= (not #)': /href=(?!["']#)/, '@import': /@import/, 'url(': /url\(/, 'type="module"': /type="module"/, 'fetch(': /fetch\(/, XMLHttpRequest: /XMLHttpRequest/ };
-    for (const [k, re] of Object.entries(pats)) {
-      const n = (html.match(new RegExp(re.source, 'g')) || []).length;
-      say(`grep ${k}: ${n} matches`);
-      eq(n, 0, `grep ${k}`);
-    }
-  });
 
   // title: AC2
   await run('title', async ({ page, say }) => {
@@ -148,6 +128,10 @@ async function main() {
   await run('shuffle', async ({ page, say }) => {
     const seen = new Set();
     const perm = (b) => [...b].map((x) => (x === '_' ? 0 : Number(x))).sort((a, c) => a - c).join() === '0,1,2,3,4,5,6,7,8';
+    // Make a move and let the timer tick first, so the reset assertions can actually fail.
+    await click(page, 7);
+    await sleep(1200);
+    ok((await movesOf(page)) === 1 && (await timerOf(page)) >= 1, 'setup: expected moves 1 and timer >= 1 before shuffling');
     for (let n = 0; n < 20; n++) {
       await page.click('#shuffle');
       const b = await board(page);
@@ -223,6 +207,7 @@ async function main() {
     await sleep(2000);
     const b = await timerOf(page);
     say(`readings ${a}, ${b}`);
+    ok(a >= 1, 'timer never ran before the solve');
     eq(b, a, 'timer readings');
   });
 
@@ -251,13 +236,35 @@ async function main() {
       ok(re.test(html), `function ${f} missing or has no comment above`);
       say(`function ${f}: present with comment`);
     }
-  });
+  }, { shoot: false });
+
+  // single-file: AC1 (runs near the end so the change set includes the evidence written by the other checks)
+  await run('single-file', async ({ say }) => {
+    const sh = (c) => execSync(c, { encoding: 'utf8' }).split(/\r?\n/).filter(Boolean);
+    const changed = new Set([
+      ...sh(`git diff --name-only ${BASE}...HEAD`),
+      ...sh('git diff --name-only HEAD'),
+      ...sh('git diff --name-only --cached'),
+      ...sh('git ls-files --others --exclude-standard'),
+    ]);
+    say('changed set: ' + [...changed].join(', '));
+    const bad = [...changed].filter((f) => f !== 'index.html' && !f.startsWith('test-results/'));
+    eq(bad, [], 'files outside index.html and test-results/**');
+    ok(changed.has('index.html'), 'index.html not in change set');
+    const html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
+    const pats = { 'src=': /src=/, 'href= (not #)': /href=(?!["']#)/, '@import': /@import/, 'url(': /url\(/, 'type="module"': /type="module"/, 'fetch(': /fetch\(/, XMLHttpRequest: /XMLHttpRequest/ };
+    for (const [k, re] of Object.entries(pats)) {
+      const n = (html.match(new RegExp(re.source, 'g')) || []).length;
+      say(`grep ${k}: ${n} matches`);
+      eq(n, 0, `grep ${k}`);
+    }
+  }, { shoot: false });
 
   await run('console', async ({ say }) => {
     say(`errors collected: ${errors.length}`);
     errors.forEach((e) => say(e));
     eq(errors, [], 'runtime errors');
-  });
+  }, { shoot: false });
 
   await browser.close();
   fs.rmSync(tmpVideo, { recursive: true, force: true });

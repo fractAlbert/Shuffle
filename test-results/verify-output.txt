@@ -1,4 +1,3 @@
-PASS single-file
 PASS title
 PASS initial-board
 PASS slide-adjacent
@@ -13,4 +12,5 @@ PASS win-message
 PASS solve-timer
 PASS layout
 PASS code-shape
+PASS single-file
 PASS console
