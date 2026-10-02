@@ -1,0 +1,16 @@
+PASS single-file
+PASS title
+PASS initial-board
+PASS slide-adjacent
+PASS slide-nonadjacent
+PASS slide-row-wrap
+PASS slide-sequence
+PASS double-click
+PASS shuffle
+PASS move-counter
+PASS timer
+PASS win-message
+PASS solve-timer
+PASS layout
+PASS code-shape
+PASS console
