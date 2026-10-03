@@ -1,4 +1,4 @@
-// Verification driver (test tooling, not app code). See plan section 6 of issues #1 and #5.
+// Verification driver (test tooling, not app code). See plan section 6 of issues #1, #4 and #5.
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -10,7 +10,8 @@ const { chromium } = require(process.env.PW_DIR);
 const ROOT = process.cwd();
 const OUT = path.join(ROOT, 'test-results');
 const PAGE_URL = url.pathToFileURL(path.resolve('index.html')).href;
-const BASE = '31b89ca16d1632134ab4f94862c38f34f3952238';
+// Change-set base for single-file; requires a fresh `git fetch origin main` first.
+const BASE = execSync('git merge-base origin/main HEAD', { encoding: 'utf8' }).trim();
 const lines = [];
 const errors = [];
 let failed = false;
@@ -26,6 +27,72 @@ const timerOf = async (page) => Number((await page.textContent('#timer')).match(
 const click = (page, i) => page.click(`#board .tile[data-index="${i}"]`);
 const SOLVED = ['1', '2', '3', '4', '5', '6', '7', '8', '_'];
 const shot = (page, dir, name = 'screenshot.png') => page.screenshot({ path: path.join(dir, name) });
+
+// Shuffle oracles (#4 D5): the driver's own judges of solvability, never the app's isSolvable.
+const solvedOf = (n) => [...Array(n - 1).keys()].map((i) => i + 1).concat(0);
+// Every board reachable from solved by legal slides, as a Set of comma-joined strings.
+function reachable(rows, cols) {
+  const start = solvedOf(rows * cols);
+  const seen = new Set([start.join()]);
+  const queue = [start];
+  for (let q = 0; q < queue.length; q++) {
+    const b = queue[q];
+    const e = b.indexOf(0), r = Math.floor(e / cols), c = e % cols;
+    for (const [dr, dc] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const nr = r + dr, nc = c + dc;
+      if (nr < 0 || nr >= rows || nc < 0 || nc >= cols) continue;
+      const nb = b.slice(); const t = nr * cols + nc;
+      [nb[e], nb[t]] = [nb[t], nb[e]];
+      const k = nb.join();
+      if (!seen.has(k)) { seen.add(k); queue.push(nb); }
+    }
+  }
+  return seen;
+}
+// Permutation parity (empty counted as tile n) must equal the parity of the empty space's taxicab distance from bottom-right.
+function oracleSolvable(arr, rows, cols) {
+  const n = rows * cols;
+  const p = arr.map((v) => (v === 0 ? n : v) - 1);
+  const seen = new Array(n).fill(false);
+  let transpositions = 0;
+  for (let i = 0; i < n; i++) {
+    if (seen[i]) continue;
+    let len = 0;
+    for (let j = i; !seen[j]; j = p[j]) { seen[j] = true; len++; }
+    transpositions += len - 1;
+  }
+  const e = arr.indexOf(0);
+  const dist = (rows - 1 - Math.floor(e / cols)) + (cols - 1 - (e % cols));
+  return transpositions % 2 === dist % 2;
+}
+// A board made by `steps` random legal slides from solved.
+function randomWalk(rows, cols, steps) {
+  const b = solvedOf(rows * cols);
+  let e = b.length - 1;
+  for (let s = 0; s < steps; s++) {
+    const r = Math.floor(e / cols), c = e % cols, nb = [];
+    if (r > 0) nb.push(e - cols);
+    if (r < rows - 1) nb.push(e + cols);
+    if (c > 0) nb.push(e - 1);
+    if (c < cols - 1) nb.push(e + 1);
+    const t = nb[Math.floor(Math.random() * nb.length)];
+    [b[e], b[t]] = [b[t], b[e]];
+    e = t;
+  }
+  return b;
+}
+// Every ordering of 0..n-1.
+function permutations(n) {
+  const out = [], a = [...Array(n).keys()];
+  const go = (k) => {
+    if (k === n) { out.push(a.slice()); return; }
+    for (let i = k; i < n; i++) { [a[k], a[i]] = [a[i], a[k]]; go(k + 1); [a[k], a[i]] = [a[i], a[k]]; }
+  };
+  go(0);
+  return out;
+}
+const REACH3 = reachable(3, 3);
+const SOLVED3 = solvedOf(9).join();
 
 async function main() {
   const browser = await chromium.launch({ channel: 'chrome', headless: true });
@@ -149,6 +216,116 @@ async function main() {
     say(`20 clicks distinct: ${seen.size}; 500 samples distinct: ${distinct}`);
   });
 
+  // shuffle-solvable: AC1, AC2 (#4). Every shuffle result is reachable and not solved.
+  await run('shuffle-solvable', async ({ page, dir, say }) => {
+    const boards = [];
+    for (let n = 0; n < 20; n++) {
+      await page.click('#shuffle');
+      if (n === 19) await shot(page, dir, 'screenshot.png');
+      boards.push((await board(page)).map((x) => (x === '_' ? 0 : Number(x))));
+      ok(!(await page.isVisible('#message')), `message visible after click ${n + 1}`);
+    }
+    boards.push(...(await page.evaluate(() => { const out = []; for (let i = 0; i < 2000; i++) { shuffle(); out.push(tiles.slice()); } return out; })));
+    let unreachable = 0, solved = 0, disagree = 0, notPerm = 0;
+    for (const b of boards) {
+      if ([...b].sort((a, c) => a - c).join() !== '0,1,2,3,4,5,6,7,8') notPerm++;
+      const inSet = REACH3.has(b.join());
+      if (!inSet) unreachable++;
+      if (oracleSolvable(b, 3, 3) !== inSet) disagree++;
+      if (b.join() === SOLVED3) solved++;
+    }
+    const distinct = new Set(boards.map((b) => b.join())).size;
+    say(`boards ${boards.length} (20 clicks + 2000 calls); unreachable ${unreachable}; solved ${solved}; oracle disagreements ${disagree}; not permutations ${notPerm}; distinct ${distinct}`);
+    eq(notPerm, 0, 'not permutations');
+    eq(unreachable, 0, 'unreachable boards');
+    eq(solved, 0, 'solved boards');
+    eq(disagree, 0, 'oracle disagreements');
+    ok(distinct >= 2, 'fewer than 2 distinct boards');
+  });
+
+  // shuffle-reroll: AC1, AC2 white box (#4). Forced solved and unsolvable first draws must be re-rolled.
+  await run('shuffle-reroll', async ({ page, say }) => {
+    const cases = { 'solved first draw': Array(8).fill(0.999), 'unsolvable first draw': Array(7).fill(0.999).concat(0) };
+    const results = await page.evaluate((cases) => {
+      const saved = Math.random;
+      const out = {};
+      try {
+        for (const [name, queue] of Object.entries(cases)) {
+          const q = queue.slice();
+          let draws = 0;
+          Math.random = () => { draws++; return q.length ? q.shift() : saved(); };
+          tiles = [1, 2, 3, 4, 5, 6, 7, 8, 0];
+          shuffle();
+          out[name] = { draws, board: tiles.slice() };
+        }
+      } finally {
+        Math.random = saved;
+      }
+      out.restored = Math.random === saved;
+      return out;
+    }, cases);
+    for (const name of Object.keys(cases)) {
+      const r = results[name];
+      say(`${name}: draws ${r.draws}, board ${r.board.join()}`);
+      ok(r.draws >= 16, `${name}: draws ${r.draws}, expected >= 16`);
+      ok(REACH3.has(r.board.join()), `${name}: final board unreachable`);
+      ok(r.board.join() !== SOLVED3, `${name}: final board solved`);
+    }
+    say('Math.random restored: ' + results.restored);
+    ok(results.restored, 'Math.random not restored');
+  }, { shoot: false });
+
+  // shuffle-uniform: D3 (#4). Tile 1 lands in every cell equally often.
+  await run('shuffle-uniform', async ({ page, say }) => {
+    const counts = await page.evaluate(() => {
+      const c = new Array(9).fill(0);
+      for (let i = 0; i < 9000; i++) { tiles = [1, 2, 3, 4, 5, 6, 7, 8, 0]; shuffle(); c[tiles.indexOf(1)]++; }
+      return c;
+    });
+    say('tile 1 counts by cell: ' + counts.join(' '));
+    ok(counts.every((n) => n >= 750 && n <= 1250), 'a cell count is outside 750-1250');
+  }, { shoot: false });
+
+  // solvable-predicate: AC3 (#4). The app's isSolvable agrees with BFS on small boards and with random walks up to 6x6.
+  await run('solvable-predicate', async ({ page, say }) => {
+    const callApp = async (boards, cols) => {
+      const res = [];
+      for (let i = 0; i < boards.length; i += 40000) {
+        res.push(...(await page.evaluate(([bs, c]) => bs.map((b) => isSolvable(b, c)), [boards.slice(i, i + 40000), cols])));
+      }
+      return res;
+    };
+    for (const [rows, cols] of [[2, 3], [3, 2], [2, 4], [4, 2], [3, 3]]) {
+      const reach = reachable(rows, cols);
+      const all = permutations(rows * cols);
+      const app = await callApp(all, cols);
+      let appBad = 0, oracleBad = 0;
+      all.forEach((b, i) => { const truth = reach.has(b.join()); if (app[i] !== truth) appBad++; if (oracleSolvable(b, rows, cols) !== truth) oracleBad++; });
+      say(`exhaustive ${rows}x${cols}: ${all.length} boards, ${reach.size} reachable; app mismatches ${appBad}; oracle mismatches ${oracleBad}`);
+      eq(appBad, 0, `app mismatches ${rows}x${cols}`);
+      eq(oracleBad, 0, `oracle mismatches ${rows}x${cols}`);
+    }
+    for (let rows = 3; rows <= 6; rows++) {
+      for (let cols = 3; cols <= 6; cols++) {
+        const good = [], bad = [];
+        for (let k = 0; k < 200; k++) {
+          const b = randomWalk(rows, cols, 2000);
+          good.push(b);
+          const f = b.slice();
+          const [i, j] = f.map((v, idx) => (v !== 0 ? idx : -1)).filter((idx) => idx >= 0).slice(0, 2);
+          [f[i], f[j]] = [f[j], f[i]];
+          bad.push(f);
+        }
+        const appGood = await callApp(good, cols), appBad = await callApp(bad, cols);
+        const misses = appGood.filter((x) => !x).length + appBad.filter((x) => x).length;
+        const oMisses = good.filter((b) => !oracleSolvable(b, rows, cols)).length + bad.filter((b) => oracleSolvable(b, rows, cols)).length;
+        say(`walk ${rows}x${cols}: 200 reachable + 200 swapped; app mismatches ${misses}; oracle mismatches ${oMisses}`);
+        eq(misses, 0, `app mismatches walk ${rows}x${cols}`);
+        eq(oMisses, 0, `oracle mismatches walk ${rows}x${cols}`);
+      }
+    }
+  }, { shoot: false });
+
   await run('move-counter', async ({ page, say }) => {
     let expected = 0;
     for (const [i, legal] of [[7, true], [0, false], [4, true], [8, false], [2, false], [5, true]]) {
@@ -255,7 +432,7 @@ async function main() {
 
   await run('code-shape', async ({ say }) => {
     const html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
-    for (const f of ['render', 'move', 'shuffle', 'checkWin']) {
+    for (const f of ['render', 'move', 'shuffle', 'isSolvable', 'isSolved', 'checkWin']) {
       const re = new RegExp('//[^\\n]*\\r?\\n\\s*function ' + f + '\\b');
       ok(re.test(html), `function ${f} missing or has no comment above`);
       say(`function ${f}: present with comment`);

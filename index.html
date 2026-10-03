@@ -104,9 +104,15 @@ function move(index) {
   render();
 }
 
-// Randomly reorder the tiles and reset moves, timer and the frozen flag.
+// Randomly reorder the tiles (Fisher-Yates) until the board is solvable and not already solved,
+// then reset moves, timer and the frozen flag.
 function shuffle() {
-  tiles.sort(() => Math.random() - 0.5);
+  do {
+    for (let i = tiles.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [tiles[i], tiles[j]] = [tiles[j], tiles[i]];
+    }
+  } while (!isSolvable(tiles, SIZE) || isSolved());
   clearInterval(timerId);
   timerId = null;
   moves = 0;
@@ -115,9 +121,27 @@ function shuffle() {
   render();
 }
 
+// Return true if the tile order (0 = empty) can be reached by sliding, for a board `cols` wide:
+// count inversions among the numbered tiles; on even-width boards also add the empty space's row distance from the bottom.
+function isSolvable(arr, cols) {
+  const rows = arr.length / cols;
+  const nums = arr.filter((v) => v !== 0);
+  let inversions = 0;
+  for (let i = 0; i < nums.length; i++) {
+    for (let j = i + 1; j < nums.length; j++) if (nums[i] > nums[j]) inversions++;
+  }
+  const emptyRowFromBottom = rows - 1 - Math.floor(arr.indexOf(0) / cols);
+  return (inversions + (cols % 2 === 0 ? emptyRowFromBottom : 0)) % 2 === 0;
+}
+
+// Return true if the tiles are in order 1..n with the empty space last.
+function isSolved() {
+  return tiles.every((value, i) => value === (i === tiles.length - 1 ? 0 : i + 1));
+}
+
 // Show the win message and freeze the timer only when the player has solved the board (at least one move).
 function checkWin() {
-  const solved = tiles.every((value, i) => value === (i === tiles.length - 1 ? 0 : i + 1));
+  const solved = isSolved();
   const won = solved && moves > 0;
   document.getElementById('message').hidden = !won;
   if (won) {
