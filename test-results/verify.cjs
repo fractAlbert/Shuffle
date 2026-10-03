@@ -1,4 +1,4 @@
-// Verification driver (test tooling, not app code). See plan section 6 of issue #1.
+// Verification driver (test tooling, not app code). See plan section 6 of issues #1 and #5.
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -10,7 +10,7 @@ const { chromium } = require(process.env.PW_DIR);
 const ROOT = process.cwd();
 const OUT = path.join(ROOT, 'test-results');
 const PAGE_URL = url.pathToFileURL(path.resolve('index.html')).href;
-const BASE = '145a7ae323c788800cdc0643eccc5d73fabf4c58';
+const BASE = '31b89ca16d1632134ab4f94862c38f34f3952238';
 const lines = [];
 const errors = [];
 let failed = false;
@@ -139,8 +139,7 @@ async function main() {
       seen.add(b.join(','));
       eq(await movesOf(page), 0, 'moves after shuffle');
       eq(await timerOf(page), 0, 'timer after shuffle');
-      const solved = b.join(',') === SOLVED.join(',');
-      if (!solved) ok(!(await page.isVisible('#message')), 'message visible on unsolved board');
+      ok(!(await page.isVisible('#message')), 'message visible after shuffle');
     }
     ok(seen.size >= 2, 'fewer than 2 distinct boards in 20 clicks');
     const extra = await page.evaluate(() => { const out = []; for (let i = 0; i < 500; i++) { shuffle(); out.push(tiles.slice()); } return out; });
@@ -186,8 +185,8 @@ async function main() {
 
   await run('win-message', async ({ page, dir, say }) => {
     const msg = page.locator('#message');
-    ok(await msg.isVisible(), 'message not visible at load');
-    eq((await msg.textContent()).trim(), 'You solved it!', 'text at load');
+    ok(!(await msg.isVisible()), 'message visible at load');
+    eq(await movesOf(page), 0, 'moves at load');
     await shot(page, dir, 'screenshot.png');
     await click(page, 7);
     ok(!(await msg.isVisible()), 'message visible after click 1');
@@ -195,8 +194,33 @@ async function main() {
     await click(page, 8);
     ok(await msg.isVisible(), 'message hidden after click 2');
     eq((await msg.textContent()).trim(), 'You solved it!', 'text after click 2');
+    eq(await movesOf(page), 2, 'moves after solve');
     await shot(page, dir, 'screenshot-3.png');
-    say('ok');
+    await click(page, 7);
+    ok(!(await msg.isVisible()), 'message visible after moving away');
+    eq(await movesOf(page), 3, 'moves after moving away');
+    await shot(page, dir, 'screenshot-4.png');
+    await click(page, 8);
+    ok(await msg.isVisible(), 'message hidden after re-solve');
+    eq(await movesOf(page), 4, 'moves after re-solve');
+    await shot(page, dir, 'screenshot-5.png');
+    say('load hidden (moves 0); solve visible (moves 2); away hidden (moves 3); re-solve visible (moves 4)');
+  });
+
+  // no-win-at-zero-moves: AC3 (#5), a solved board at Moves 0 (as after Shuffle) shows no message.
+  await run('no-win-at-zero-moves', async ({ page, say }) => {
+    const msg = page.locator('#message');
+    await click(page, 7);
+    await click(page, 8);
+    ok(await msg.isVisible(), 'setup: message not visible after solving');
+    await page.click('#shuffle');
+    await page.evaluate(() => { tiles = [1, 2, 3, 4, 5, 6, 7, 8, 0]; render(); });
+    eq(await movesOf(page), 0, 'setup: moves');
+    eq(await board(page), SOLVED, 'setup: board');
+    ok(!(await msg.isVisible()), 'message visible on solved board with 0 moves');
+    await sleep(1500);
+    eq(await timerOf(page), 0, 'timer');
+    say('solved board at moves 0: message hidden, timer 0 after 1.5s');
   });
 
   await run('solve-timer', async ({ page, say }) => {

@@ -1,0 +1,1 @@
+solved board at moves 0: message hidden, timer 0 after 1.5s
