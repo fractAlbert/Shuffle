@@ -18,21 +18,24 @@
   }
   h1 { margin: 0; }
   .status { display: flex; gap: 24px; font-size: 1.1rem; }
+  .size { display: flex; gap: 24px; font-size: 1.1rem; }
+  .size select { font: inherit; margin-left: 4px; }
   #board {
+    --tile: min(90px, calc((100vw - 72px) / var(--cols, 3)), calc((100vh - 340px) / var(--rows, 3)));
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(var(--cols, 3), var(--tile));
     gap: 6px;
     padding: 6px;
     background: #8a7f6a;
     border-radius: 8px;
   }
   .tile {
-    width: 90px;
-    height: 90px;
+    width: var(--tile);
+    height: var(--tile);
     padding: 0;
     border: none;
     border-radius: 6px;
-    font-size: 2rem;
+    font-size: calc(var(--tile) * 0.36);
     font-weight: 700;
     background: #f2b84b;
     color: #222;
@@ -63,11 +66,16 @@
   <span id="moves">Moves: 0</span>
   <span id="timer">Time: 0s</span>
 </div>
+<div class="size">
+  <label>Rows <select id="rows" autocomplete="off"><option value="3">3</option><option value="4">4</option><option value="5">5</option><option value="6">6</option></select></label>
+  <label>Columns <select id="cols" autocomplete="off"><option value="3">3</option><option value="4">4</option><option value="5">5</option><option value="6">6</option></select></label>
+</div>
 <div id="board"></div>
 <button id="shuffle" type="button">Shuffle</button>
 <div id="message" hidden>You solved it!</div>
 <script>
-const SIZE = 3;
+let rows = 3;
+let cols = 3;
 let tiles = [1, 2, 3, 4, 5, 6, 7, 8, 0]; // 0 is the empty space
 let moves = 0;
 let seconds = 0;
@@ -78,6 +86,8 @@ let frozen = false;
 function render() {
   const board = document.getElementById('board');
   board.innerHTML = '';
+  board.style.setProperty('--cols', cols);
+  board.style.setProperty('--rows', rows);
   tiles.forEach((value, i) => {
     const btn = document.createElement('button');
     btn.className = value === 0 ? 'tile empty' : 'tile';
@@ -94,13 +104,28 @@ function render() {
 function move(index) {
   const empty = tiles.indexOf(0);
   if (index === empty) return;
-  const rowDiff = Math.abs(Math.floor(index / SIZE) - Math.floor(empty / SIZE));
-  const colDiff = Math.abs((index % SIZE) - (empty % SIZE));
+  const rowDiff = Math.abs(Math.floor(index / cols) - Math.floor(empty / cols));
+  const colDiff = Math.abs((index % cols) - (empty % cols));
   const adjacent = (rowDiff === 0 && colDiff === 1) || (colDiff === 0 && rowDiff === 1);
   if (!adjacent) return;
   [tiles[index], tiles[empty]] = [tiles[empty], tiles[index]];
   moves++;
   if (timerId === null && !frozen) startTimer();
+  render();
+}
+
+// Start a new game at r rows by c columns: solved board, moves and timer reset, timer stopped.
+function setSize(r, c) {
+  rows = r;
+  cols = c;
+  tiles = [];
+  for (let i = 1; i < r * c; i++) tiles.push(i);
+  tiles.push(0);
+  clearInterval(timerId);
+  timerId = null;
+  moves = 0;
+  seconds = 0;
+  frozen = false;
   render();
 }
 
@@ -112,7 +137,7 @@ function shuffle() {
       const j = Math.floor(Math.random() * (i + 1));
       [tiles[i], tiles[j]] = [tiles[j], tiles[i]];
     }
-  } while (!isSolvable(tiles, SIZE) || isSolved());
+  } while (!isSolvable(tiles, cols) || isSolved());
   clearInterval(timerId);
   timerId = null;
   moves = 0;
@@ -165,6 +190,12 @@ document.getElementById('board').addEventListener('click', (e) => {
   if (tile) move(Number(tile.dataset.index));
 });
 document.getElementById('shuffle').addEventListener('click', shuffle);
+// Start a new game at the size chosen in the Rows and Columns selects.
+function onSizeChange() {
+  setSize(Number(document.getElementById('rows').value), Number(document.getElementById('cols').value));
+}
+document.getElementById('rows').addEventListener('change', onSizeChange);
+document.getElementById('cols').addEventListener('change', onSizeChange);
 
 render();
 </script>

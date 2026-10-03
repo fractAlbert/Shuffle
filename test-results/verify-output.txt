@@ -17,5 +17,15 @@ PASS no-win-at-zero-moves
 PASS solve-timer
 PASS layout
 PASS code-shape
+PASS size-controls
+PASS size-all
+PASS size-slide-3x4
+PASS size-slide-4x3
+PASS size-shuffle
+PASS size-solvable
+PASS size-uniform
+PASS size-reroll
+PASS size-win
+PASS size-reset
 PASS single-file
 PASS console
