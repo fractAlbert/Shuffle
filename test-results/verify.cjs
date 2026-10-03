@@ -1,4 +1,4 @@
-// Verification driver (test tooling, not app code). See plan section 6 of issues #1, #4 and #5.
+// Verification driver (test tooling, not app code). See plan section 6 of issues #1, #2, #4 and #5.
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -91,6 +91,9 @@ function permutations(n) {
   go(0);
   return out;
 }
+// Size helpers (#2): drive the real selects.
+const setSizeUI = async (page, r, c) => { await page.selectOption('#rows', String(r)); await page.selectOption('#cols', String(c)); };
+const solvedBoard = (n) => [...Array(n - 1).keys()].map((i) => String(i + 1)).concat('_');
 const REACH3 = reachable(3, 3);
 const SOLVED3 = solvedOf(9).join();
 
@@ -412,32 +415,270 @@ async function main() {
     eq(b, a, 'timer readings');
   });
 
+  // layout: AC6 (#2), extended to the largest sizes
   await run('layout', async ({ page, dir, say }) => {
-    for (const [w, h, shotName] of [[1280, 800, 'screenshot.png'], [390, 844, 'screenshot-mobile.png']]) {
+    const sizes = [[3, 3], [3, 6], [6, 3], [6, 6]];
+    for (const [w, h, suffix] of [[1280, 800, ''], [390, 844, '-mobile']]) {
       await page.setViewportSize({ width: w, height: h });
-      const m = await page.evaluate(() => {
-        const bx = document.getElementById('board').getBoundingClientRect();
-        const tiles = [...document.querySelectorAll('.tile')].map((t) => { const r = t.getBoundingClientRect(); return [r.width, r.height]; });
-        const bg = (s) => getComputedStyle(document.querySelector(s)).backgroundColor;
-        return { left: bx.left, right: window.innerWidth - bx.right, tiles, emptyBg: bg('.tile.empty'), tileBg: bg('.tile:not(.empty)'), sw: document.documentElement.scrollWidth, cw: document.documentElement.clientWidth };
-      });
-      say(`${w}x${h}: ${JSON.stringify(m)}`);
-      ok(Math.abs(m.left - m.right) <= 2, `${w}: margins ${m.left} vs ${m.right}`);
-      ok(m.tiles.every(([tw, th]) => Math.abs(tw - th) <= 1), `${w}: tiles not square`);
-      ok(m.emptyBg !== m.tileBg, `${w}: empty bg equals tile bg`);
-      ok(m.sw <= m.cw, `${w}: horizontal scroll`);
-      await shot(page, dir, shotName);
+      for (const [r, c] of sizes) {
+        await setSizeUI(page, r, c);
+        const m = await page.evaluate(() => {
+          const bx = document.getElementById('board').getBoundingClientRect();
+          const tiles = [...document.querySelectorAll('.tile')].map((t) => { const q = t.getBoundingClientRect(); return [q.width, q.height]; });
+          const bg = (s) => getComputedStyle(document.querySelector(s)).backgroundColor;
+          const sr = document.querySelector('.size').getBoundingClientRect();
+          const msg = document.getElementById('message');
+          const was = msg.hidden;
+          msg.hidden = false;
+          const msgBottom = msg.getBoundingClientRect().bottom;
+          msg.hidden = was;
+          return { left: bx.left, right: window.innerWidth - bx.right, tiles, emptyBg: bg('.tile.empty'), tileBg: bg('.tile:not(.empty)'), sw: document.documentElement.scrollWidth, cw: document.documentElement.clientWidth, sizeLeft: sr.left, sizeRight: sr.right, iw: window.innerWidth, ih: window.innerHeight, msgBottom };
+        });
+        const tag = `${w}x${h} ${r}x${c}`;
+        say(`${tag}: ${JSON.stringify(m)}`);
+        ok(Math.abs(m.left - m.right) <= 2, `${tag}: margins ${m.left} vs ${m.right}`);
+        ok(m.tiles.every(([tw, th]) => Math.abs(tw - th) <= 1), `${tag}: tiles not square`);
+        ok(m.emptyBg !== m.tileBg, `${tag}: empty bg equals tile bg`);
+        ok(m.sw <= m.cw, `${tag}: horizontal scroll`);
+        ok(m.sizeLeft >= 0 && m.sizeRight <= m.iw, `${tag}: size row outside viewport width`);
+        ok(m.msgBottom <= m.ih, `${tag}: message bottom ${m.msgBottom} beyond viewport ${m.ih}`);
+        if (r === 3 && c === 3) await shot(page, dir, `screenshot${suffix}.png`);
+        if (r === 6 && c === 6) await shot(page, dir, `screenshot-6x6${suffix}.png`);
+      }
     }
   });
 
   await run('code-shape', async ({ say }) => {
     const html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
-    for (const f of ['render', 'move', 'shuffle', 'isSolvable', 'isSolved', 'checkWin']) {
+    for (const f of ['render', 'move', 'setSize', 'shuffle', 'isSolvable', 'isSolved', 'checkWin']) {
       const re = new RegExp('//[^\\n]*\\r?\\n\\s*function ' + f + '\\b');
       ok(re.test(html), `function ${f} missing or has no comment above`);
       say(`function ${f}: present with comment`);
     }
+    ok(!/\bSIZE\b/.test(html), 'SIZE still present');
+    say('SIZE: absent');
+    ok(html.includes('isSolvable(tiles, cols)'), 'isSolvable(tiles, cols) missing');
+    say('isSolvable(tiles, cols): present');
   }, { shoot: false });
+
+  // size-controls: AC1 (#2)
+  await run('size-controls', async ({ page, say }) => {
+    for (const id of ['rows', 'cols']) {
+      const info = await page.$eval('#' + id, (el) => ({ tag: el.tagName, ac: el.getAttribute('autocomplete'), opts: [...el.options].map((o) => o.value), val: el.value }));
+      say(`${id}: ${JSON.stringify(info)}`);
+      eq(info.tag, 'SELECT', id + ' tag');
+      eq(info.ac, 'off', id + ' autocomplete');
+      eq(info.opts, ['3', '4', '5', '6'], id + ' options');
+      eq(info.val, '3', id + ' default');
+    }
+    eq(await page.getByLabel('Rows').evaluate((e) => e.id), 'rows', 'Rows label target');
+    eq(await page.getByLabel('Columns').evaluate((e) => e.id), 'cols', 'Columns label target');
+    await page.selectOption('#cols', '5');
+    await page.goto('about:blank');
+    await page.goBack();
+    const vals = await page.evaluate(() => [document.getElementById('rows').value, document.getElementById('cols').value, document.querySelectorAll('#board .tile').length]);
+    say('after back/forward: ' + JSON.stringify(vals));
+    eq(vals, ['3', '3', 9], 'selects and board after back/forward');
+  });
+
+  // size-all: AC2 (#2)
+  await run('size-all', async ({ page, dir, say }) => {
+    for (let r = 3; r <= 6; r++) {
+      for (let c = 3; c <= 6; c++) {
+        await setSizeUI(page, r, c);
+        const boxes = await page.$$eval('#board .tile', (els) => els.map((e) => { const b = e.getBoundingClientRect(); return [Math.round(b.x), Math.round(b.y)]; }));
+        eq(boxes.length, r * c, `${r}x${c} tile count`);
+        eq(new Set(boxes.map((b) => b[0])).size, c, `${r}x${c} distinct x`);
+        eq(new Set(boxes.map((b) => b[1])).size, r, `${r}x${c} distinct y`);
+        eq(await board(page), solvedBoard(r * c), `${r}x${c} labels`);
+        eq(await page.$$eval('#board .tile.empty', (e) => e.length), 1, `${r}x${c} empty count`);
+        eq(await movesOf(page), 0, `${r}x${c} moves`);
+        eq(await timerOf(page), 0, `${r}x${c} timer`);
+        ok(!(await page.isVisible('#message')), `${r}x${c} message visible`);
+        say(`${r}x${c}: ${boxes.length} tiles, ${c} columns, ${r} rows, solved, moves 0, timer 0s, message hidden`);
+        if (['3x6', '6x3', '4x5', '6x6'].includes(`${r}x${c}`)) await shot(page, dir, `screenshot-${r}x${c}.png`);
+      }
+    }
+  });
+
+  // size-slide-3x4: AC3 (#2)
+  await run('size-slide-3x4', async ({ page, say }) => {
+    await setSizeUI(page, 3, 4);
+    for (const i of [7, 6, 5, 4]) await click(page, i);
+    const after4 = ['1', '2', '3', '4', '_', '5', '6', '7', '9', '10', '11', '8'];
+    eq(await board(page), after4, 'after 4 clicks');
+    eq(await movesOf(page), 4, 'moves 4');
+    await click(page, 3);
+    await click(page, 1);
+    eq(await board(page), after4, 'after illegal clicks 3 and 1');
+    eq(await movesOf(page), 4, 'moves still 4');
+    await click(page, 0);
+    eq(await board(page), ['_', '2', '3', '4', '1', '5', '6', '7', '9', '10', '11', '8'], 'after click 0');
+    eq(await movesOf(page), 5, 'moves 5');
+    say('ok');
+  });
+
+  // size-slide-4x3: AC3 (#2)
+  await run('size-slide-4x3', async ({ page, say }) => {
+    await setSizeUI(page, 4, 3);
+    for (const i of [8, 7, 6]) await click(page, i);
+    const after3 = ['1', '2', '3', '4', '5', '6', '_', '7', '8', '10', '11', '9'];
+    eq(await board(page), after3, 'after 3 clicks');
+    eq(await movesOf(page), 3, 'moves 3');
+    await click(page, 5);
+    eq(await board(page), after3, 'after illegal click 5');
+    eq(await movesOf(page), 3, 'moves still 3');
+    await click(page, 9);
+    eq(await board(page), ['1', '2', '3', '4', '5', '6', '10', '7', '8', '_', '11', '9'], 'after click 9');
+    eq(await movesOf(page), 4, 'moves 4');
+    say('ok');
+  });
+
+  // size-shuffle: AC4 (#2)
+  await run('size-shuffle', async ({ page, dir, say }) => {
+    for (const [r, c] of [[3, 4], [5, 3], [6, 6]]) {
+      await setSizeUI(page, r, c);
+      await click(page, r * c - 1 - c);
+      await sleep(1200);
+      ok((await movesOf(page)) === 1 && (await timerOf(page)) >= 1, `${r}x${c} setup: expected moves 1 and timer >= 1`);
+      const seen = new Set();
+      const expectSorted = [...Array(r * c).keys()].join();
+      for (let n = 0; n < 10; n++) {
+        await page.click('#shuffle');
+        const b = await board(page);
+        eq(b.map((x) => (x === '_' ? 0 : Number(x))).sort((a, d) => a - d).join(), expectSorted, `${r}x${c} permutation`);
+        seen.add(b.join());
+        const boxes = await page.$$eval('#board .tile', (els) => els.map((e) => { const q = e.getBoundingClientRect(); return [Math.round(q.x), Math.round(q.y)]; }));
+        eq(new Set(boxes.map((q) => q[0])).size, c, `${r}x${c} column count`);
+        eq(new Set(boxes.map((q) => q[1])).size, r, `${r}x${c} row count`);
+        eq(await movesOf(page), 0, `${r}x${c} moves after shuffle`);
+        eq(await timerOf(page), 0, `${r}x${c} timer after shuffle`);
+        ok(!(await page.isVisible('#message')), `${r}x${c} message visible after shuffle`);
+      }
+      ok(seen.size >= 2, `${r}x${c}: fewer than 2 distinct boards`);
+      say(`${r}x${c}: 10 shuffles, ${seen.size} distinct`);
+    }
+    await shot(page, dir, 'screenshot.png');
+  });
+
+  // size-solvable: path A, #4 V1 at other sizes (#2). Judged by the driver's oracleSolvable, never the app's isSolvable.
+  await run('size-solvable', async ({ page, say }) => {
+    for (const [r, c] of [[3, 4], [4, 3], [4, 6], [6, 4], [6, 6]]) {
+      await setSizeUI(page, r, c);
+      const boards = await page.evaluate(() => { const out = []; for (let i = 0; i < 500; i++) { shuffle(); out.push(tiles.slice()); } return out; });
+      const solved = solvedOf(r * c).join();
+      const bad = boards.filter((b) => !oracleSolvable(b, r, c)).length;
+      const solvedCount = boards.filter((b) => b.join() === solved).length;
+      const wrongLen = boards.filter((b) => b.length !== r * c).length;
+      say(`${r}x${c}: 500 samples; oracle-unsolvable ${bad}; solved ${solvedCount}; wrong length ${wrongLen}`);
+      eq(wrongLen, 0, `${r}x${c} wrong length`);
+      eq(bad, 0, `${r}x${c} unsolvable samples`);
+      eq(solvedCount, 0, `${r}x${c} solved samples`);
+    }
+  }, { shoot: false });
+
+  // size-uniform: path A, #4 V3 at 3x4 (#2)
+  await run('size-uniform', async ({ page, say }) => {
+    await setSizeUI(page, 3, 4);
+    const counts = await page.evaluate(() => {
+      const cnt = new Array(12).fill(0);
+      for (let i = 0; i < 12000; i++) { tiles = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 0]; shuffle(); cnt[tiles.indexOf(1)]++; }
+      return cnt;
+    });
+    say('tile 1 counts by cell: ' + counts.join(' '));
+    ok(counts.every((n) => n >= 750 && n <= 1250), 'a cell count is outside 750-1250');
+  }, { shoot: false });
+
+  // size-reroll: path A, #4 V4 at 3x4 (#2). Forced solved and unsolvable first draws must be re-rolled.
+  await run('size-reroll', async ({ page, say }) => {
+    await setSizeUI(page, 3, 4);
+    const cases = { 'solved first draw': Array(11).fill(0.999), 'unsolvable first draw': Array(10).fill(0.999).concat(0) };
+    const results = await page.evaluate((cases) => {
+      const saved = Math.random;
+      const out = {};
+      try {
+        for (const [name, queue] of Object.entries(cases)) {
+          const q = queue.slice();
+          let draws = 0;
+          Math.random = () => { draws++; return q.length ? q.shift() : saved(); };
+          tiles = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 0];
+          shuffle();
+          out[name] = { draws, board: tiles.slice() };
+        }
+      } finally {
+        Math.random = saved;
+      }
+      out.restored = Math.random === saved;
+      return out;
+    }, cases);
+    for (const name of Object.keys(cases)) {
+      const r = results[name];
+      say(`${name}: draws ${r.draws}, board ${r.board.join()}`);
+      ok(r.draws >= 22, `${name}: draws ${r.draws}, expected >= 22`);
+      ok(oracleSolvable(r.board, 3, 4), `${name}: final board unsolvable`);
+      ok(r.board.join() !== solvedOf(12).join(), `${name}: final board solved`);
+    }
+    say('Math.random restored: ' + results.restored);
+    ok(results.restored, 'Math.random not restored');
+  }, { shoot: false });
+
+  // size-win: AC5 (#2)
+  await run('size-win', async ({ page, dir, say }) => {
+    const msg = page.locator('#message');
+    for (const [r, c, a, b] of [[3, 4, 7, 11], [6, 6, 34, 35]]) {
+      await setSizeUI(page, r, c);
+      await click(page, a);
+      ok(!(await msg.isVisible()), `${r}x${c}: message visible after first click`);
+      await click(page, b);
+      ok(await msg.isVisible(), `${r}x${c}: message hidden after second click`);
+      eq((await msg.textContent()).trim(), 'You solved it!', `${r}x${c} text`);
+      const t1 = await timerOf(page);
+      await sleep(1500);
+      const t2 = await timerOf(page);
+      eq(t2, t1, `${r}x${c} timer frozen`);
+      say(`${r}x${c}: hidden after click ${a}, visible after click ${b}; timer readings ${t1}, ${t2}`);
+      await shot(page, dir, `screenshot-${r}x${c}.png`);
+    }
+  });
+
+  // size-reset: D2 (#2). A size change starts a new game at once.
+  await run('size-reset', async ({ page, say }) => {
+    const msg = page.locator('#message');
+    await click(page, 7);
+    await sleep(1200);
+    ok((await movesOf(page)) === 1 && (await timerOf(page)) >= 1, '(a) setup: moves 1 and timer >= 1');
+    await page.selectOption('#cols', '5');
+    eq(await board(page), solvedBoard(15), '(a) board');
+    eq(await movesOf(page), 0, '(a) moves');
+    eq(await timerOf(page), 0, '(a) timer');
+    ok(!(await msg.isVisible()), '(a) message visible');
+    say('(a) 3x5 solved, moves 0, timer 0s, message hidden');
+    await sleep(1500);
+    eq(await timerOf(page), 0, '(b) timer leaked');
+    say('(b) timer still 0s after 1.5s');
+    await click(page, 9);
+    eq(await movesOf(page), 1, '(c) moves');
+    await sleep(1200);
+    ok((await timerOf(page)) >= 1, '(c) timer not running');
+    say('(c) click 9 legal at stride 5: moves 1, timer ' + (await timerOf(page)));
+    const fresh = await newPage();
+    try {
+      const p2 = fresh.page;
+      await click(p2, 7);
+      await sleep(1200);
+      await click(p2, 8);
+      ok(await p2.locator('#message').isVisible(), '(d) setup: message not visible when solved');
+      await p2.selectOption('#rows', '4');
+      ok(!(await p2.locator('#message').isVisible()), '(d) message visible after resize');
+      eq(await board(p2), solvedBoard(12), '(d) board');
+      await click(p2, 8);
+      await sleep(1200);
+      ok((await timerOf(p2)) >= 1, '(d) timer frozen after resize');
+      say('(d) message hidden after resize; timer ' + (await timerOf(p2)) + ' after move');
+    } finally {
+      await fresh.ctx.close();
+    }
+  }, { video: true });
 
   // single-file: AC1 (runs near the end so the change set includes the evidence written by the other checks)
   await run('single-file', async ({ say }) => {

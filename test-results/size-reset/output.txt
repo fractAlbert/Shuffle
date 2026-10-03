@@ -1,0 +1,4 @@
+(a) 3x5 solved, moves 0, timer 0s, message hidden
+(b) timer still 0s after 1.5s
+(c) click 9 legal at stride 5: moves 1, timer 1
+(d) message hidden after resize; timer 1 after move

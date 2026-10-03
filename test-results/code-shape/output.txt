@@ -1,6 +1,9 @@
 function render: present with comment
 function move: present with comment
+function setSize: present with comment
 function shuffle: present with comment
 function isSolvable: present with comment
 function isSolved: present with comment
 function checkWin: present with comment
+SIZE: absent
+isSolvable(tiles, cols): present

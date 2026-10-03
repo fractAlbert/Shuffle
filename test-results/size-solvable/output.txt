@@ -1,0 +1,5 @@
+3x4: 500 samples; oracle-unsolvable 0; solved 0; wrong length 0
+4x3: 500 samples; oracle-unsolvable 0; solved 0; wrong length 0
+4x6: 500 samples; oracle-unsolvable 0; solved 0; wrong length 0
+6x4: 500 samples; oracle-unsolvable 0; solved 0; wrong length 0
+6x6: 500 samples; oracle-unsolvable 0; solved 0; wrong length 0

@@ -1,0 +1,2 @@
+3x4: hidden after click 7, visible after click 11; timer readings 0, 0
+6x6: hidden after click 34, visible after click 35; timer readings 0, 0
