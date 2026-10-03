@@ -115,11 +115,12 @@ function shuffle() {
   render();
 }
 
-// Show the win message when solved, and freeze the timer once a move has been made.
+// Show the win message and freeze the timer only when the player has solved the board (at least one move).
 function checkWin() {
   const solved = tiles.every((value, i) => value === (i === tiles.length - 1 ? 0 : i + 1));
-  document.getElementById('message').hidden = !solved;
-  if (solved && moves > 0) {
+  const won = solved && moves > 0;
+  document.getElementById('message').hidden = !won;
+  if (won) {
     clearInterval(timerId);
     timerId = null;
     frozen = true;
