@@ -6,6 +6,10 @@ PASS slide-row-wrap
 PASS slide-sequence
 PASS double-click
 PASS shuffle
+PASS shuffle-solvable
+PASS shuffle-reroll
+PASS shuffle-uniform
+PASS solvable-predicate
 PASS move-counter
 PASS timer
 PASS win-message

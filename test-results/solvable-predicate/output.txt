@@ -1,0 +1,21 @@
+exhaustive 2x3: 720 boards, 360 reachable; app mismatches 0; oracle mismatches 0
+exhaustive 3x2: 720 boards, 360 reachable; app mismatches 0; oracle mismatches 0
+exhaustive 2x4: 40320 boards, 20160 reachable; app mismatches 0; oracle mismatches 0
+exhaustive 4x2: 40320 boards, 20160 reachable; app mismatches 0; oracle mismatches 0
+exhaustive 3x3: 362880 boards, 181440 reachable; app mismatches 0; oracle mismatches 0
+walk 3x3: 200 reachable + 200 swapped; app mismatches 0; oracle mismatches 0
+walk 3x4: 200 reachable + 200 swapped; app mismatches 0; oracle mismatches 0
+walk 3x5: 200 reachable + 200 swapped; app mismatches 0; oracle mismatches 0
+walk 3x6: 200 reachable + 200 swapped; app mismatches 0; oracle mismatches 0
+walk 4x3: 200 reachable + 200 swapped; app mismatches 0; oracle mismatches 0
+walk 4x4: 200 reachable + 200 swapped; app mismatches 0; oracle mismatches 0
+walk 4x5: 200 reachable + 200 swapped; app mismatches 0; oracle mismatches 0
+walk 4x6: 200 reachable + 200 swapped; app mismatches 0; oracle mismatches 0
+walk 5x3: 200 reachable + 200 swapped; app mismatches 0; oracle mismatches 0
+walk 5x4: 200 reachable + 200 swapped; app mismatches 0; oracle mismatches 0
+walk 5x5: 200 reachable + 200 swapped; app mismatches 0; oracle mismatches 0
+walk 5x6: 200 reachable + 200 swapped; app mismatches 0; oracle mismatches 0
+walk 6x3: 200 reachable + 200 swapped; app mismatches 0; oracle mismatches 0
+walk 6x4: 200 reachable + 200 swapped; app mismatches 0; oracle mismatches 0
+walk 6x5: 200 reachable + 200 swapped; app mismatches 0; oracle mismatches 0
+walk 6x6: 200 reachable + 200 swapped; app mismatches 0; oracle mismatches 0
