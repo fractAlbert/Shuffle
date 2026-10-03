@@ -9,6 +9,7 @@ PASS shuffle
 PASS move-counter
 PASS timer
 PASS win-message
+PASS no-win-at-zero-moves
 PASS solve-timer
 PASS layout
 PASS code-shape
