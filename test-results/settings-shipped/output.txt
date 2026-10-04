@@ -1,0 +1,2 @@
+all 64 sizes 3..10 x 3..10: tile count, columns, rows, labels, moves 0, timer 0, message hidden
+preset "Edward Hopper - Nighthawks" at 10x10: 99 canvases, no text; one slide moved the canvas from 98 to 99, moves 1

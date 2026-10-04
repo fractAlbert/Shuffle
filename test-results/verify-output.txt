@@ -29,6 +29,7 @@ PASS size-uniform
 PASS size-reroll
 PASS size-win
 PASS size-reset
+PASS size-slide-large
 PASS image-pick
 PASS image-sizes
 PASS image-play
@@ -51,6 +52,12 @@ PASS preset-errors
 PASS preset-cache
 PASS preset-race
 PASS preset-hostile
+PASS settings-shipped
+PASS settings-edit
+PASS settings-values
+PASS settings-fallback
+PASS settings-late
+PASS readme-settings
 PASS preset-requests
 PASS preset-layout
 PASS readme-run

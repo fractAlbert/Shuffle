@@ -1,4 +1,4 @@
-// Verification driver (test tooling, not app code). See plan section 6 of issues #1, #2, #3, #4, #5, #7 and #13.
+// Verification driver (test tooling, not app code). See plan section 6 of issues #1, #2, #3, #4, #5, #7, #13 and #14.
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -94,7 +94,7 @@ function permutations(n) {
   return out;
 }
 // Look helpers (#7): size matrix, viewports, computed-colour and geometry readers.
-const SIZES = [[3, 3], [3, 4], [4, 3], [6, 6], [3, 6], [6, 3]];
+const SIZES = [[3, 3], [3, 4], [4, 3], [6, 6], [3, 6], [6, 3], [10, 10], [3, 10], [10, 3]];
 const VIEWS = [[1280, 800], [560, 800], [390, 844], [360, 740]];
 const requests = [];
 // Every opaque colour (rgb() or rgba(...,1)) in an element's computed background-color and background-image; translucent overlays are ignored.
@@ -309,6 +309,11 @@ async function canned(okBytes) {
       return;
     }
     if (p === '/images/ok.png') { res.writeHead(200, { 'Content-Type': 'image/png' }); res.end(okBytes); return; }
+    if (p === '/settings.json') {
+      const r = cs.settings ? cs.settings() : {};
+      setTimeout(() => { res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(r.body !== undefined ? r.body : fs.readFileSync(path.join(ROOT, 'settings.json'))); }, r.delay || 0);
+      return;
+    }
     res.writeHead(404, { 'Content-Type': 'text/plain' });
     res.end('not found');
   });
@@ -346,6 +351,72 @@ const newPresetUI = async (pg, r, c, label) => {
   await pg.click('#new-start');
   await pg.waitForSelector('#crop-dialog[open]');
 };
+
+// ---- #14 helpers. Expectations come from plan #14 sections 2 and 6, never from the app's code. ----
+const seq = (a, b) => [...Array(b - a + 1).keys()].map((i) => i + a);
+const SHIPPED_TEXT = '{\n  "grid": {\n    "rows": { "min": 3, "max": 10 },\n    "columns": { "min": 3, "max": 10 }\n  }\n}\n';
+const S_EDIT = '{"grid":{"rows":{"min":4,"max":8},"columns":{"min":3,"max":12}}}';
+const S_BAD = '{ "grid": { "rows": ';
+const S_VALUES = '{"grid":{"rows":{"min":"4","max":8},"columns":{"min":9,"max":4}},"theme":"dark"}';
+const S_NEAR = '{"grid":{"rows":{"min":5,"max":7},"columns":{"min":4,"max":4}}}';
+const NO_PRESETS = 'No preset pictures found.';
+// The Rows and Columns options of the New dialog, as numbers.
+const optionsOf = (page) => page.evaluate(() => ({ rows: [...document.getElementById('rows').options].map((o) => Number(o.value)), cols: [...document.getElementById('cols').options].map((o) => Number(o.value)) }));
+// Wait for the app's settings load to finish, whether it applied a range or fell back.
+const ready = (page) => page.evaluate(() => settingsReady);
+// The driver's own board after a click list from solved: a click slides only when its tile is orthogonally adjacent to the empty cell. Never the app's move.
+function slideOracle(r, c, clicks) {
+  const t = solvedOf(r * c);
+  let e = t.length - 1, moves = 0;
+  for (const i of clicks) {
+    const dr = Math.abs(Math.floor(i / c) - Math.floor(e / c)), dc = Math.abs((i % c) - (e % c));
+    if (dr + dc !== 1) continue;
+    [t[i], t[e]] = [t[e], t[i]];
+    e = i;
+    moves++;
+  }
+  return { tiles: t.map((v) => (v === 0 ? '_' : String(v))), moves };
+}
+// A fixture root under the temp dir: a byte copy of index.html, an empty images/ and, unless body is null, a settings.json written verbatim.
+function settingsRoot(name, body) {
+  const dir = path.join(tmpRoot, name);
+  fs.mkdirSync(path.join(dir, 'images'), { recursive: true });
+  fs.writeFileSync(path.join(dir, 'index.html'), fs.readFileSync(path.join(ROOT, 'index.html')));
+  if (body !== null) fs.writeFileSync(path.join(dir, 'settings.json'), body);
+  return dir;
+}
+// Root-specific readiness: settings.json answers with exactly these bytes, or (null) 404 together with an empty images/ listing.
+const settingsProbe = (body) => async (o) => {
+  const r = await httpGet(o + '/settings.json');
+  if (body !== null) return r.status === 200 && r.body === body;
+  const i = await httpGet(o + '/images/');
+  return r.status === 404 && i.status === 200 && !i.body.includes('<li>');
+};
+// Tile count and distinct column and row positions of the board on the page.
+async function gridOf(pg, r, c, tag) {
+  const boxes = await pg.$$eval('#board .tile', (els) => els.map((e) => { const q = e.getBoundingClientRect(); return [Math.round(q.x), Math.round(q.y)]; }));
+  eq(boxes.length, r * c, tag + ' tile count');
+  eq(new Set(boxes.map((b) => b[0])).size, c, tag + ' distinct x');
+  eq(new Set(boxes.map((b) => b[1])).size, r, tag + ' distinct y');
+}
+// Tile boxes, the well, scroll widths and the bottom of #message (shown for the measurement) of the page.
+const fitMetrics = (page) => page.evaluate(() => {
+  const rc = (e) => { const q = e.getBoundingClientRect(); return { l: q.left, r: q.right, t: q.top, b: q.bottom, w: q.width, h: q.height }; };
+  const msg = document.getElementById('message');
+  const was = msg.hidden;
+  msg.hidden = false;
+  const msgB = rc(msg).b;
+  msg.hidden = was;
+  return { tiles: [...document.querySelectorAll('.tile')].map(rc), well: rc(document.querySelector('.well')), sw: document.documentElement.scrollWidth, cw: document.documentElement.clientWidth, ih: window.innerHeight, msgB };
+});
+// Throw unless the board fits: no horizontal scroll, square tiles of at least floor px, inside the well, #message inside the viewport.
+function expectFits(m, tag, floor) {
+  ok(m.sw <= m.cw, `${tag}: horizontal scroll ${m.sw} > ${m.cw}`);
+  ok(m.tiles.every((q) => Math.abs(q.w - q.h) <= 1), tag + ': tiles not square');
+  ok(m.tiles.every((q) => q.w >= floor), `${tag}: tile under ${floor}px (${m.tiles[0].w.toFixed(1)})`);
+  ok(m.tiles.every((q) => inside(q, m.well)), tag + ': tile outside well');
+  ok(m.msgB <= m.ih, `${tag}: message bottom ${m.msgB} beyond viewport ${m.ih}`);
+}
 
 async function main() {
   const browser = await chromium.launch({ channel: 'chrome', headless: true });
@@ -390,7 +461,7 @@ async function main() {
   await run('title', async ({ page, dir, say }) => {
     for (const [w, h] of VIEWS) {
       await page.setViewportSize({ width: w, height: h });
-      for (const [r, c] of [[3, 3], [6, 6]]) {
+      for (const [r, c] of [[3, 3], [6, 6], [10, 10]]) {
         await setSizeUI(page, r, c);
         const tag = `${w}x${h} ${r}x${c}`;
         eq(await page.$$eval('h1', (e) => e.length), 1, tag + ' h1 count');
@@ -718,7 +789,8 @@ async function main() {
         say(`${tag}: tile ${m.tiles[0].w.toFixed(1)}px, frame ${m.fr.l.toFixed(1)}..${m.fr.r.toFixed(1)}, cw ${m.cw}, msgBottom ${m.msgBox.b.toFixed(1)}`);
         ok(m.sw <= m.cw, `${tag}: horizontal scroll ${m.sw} > ${m.cw}`);
         ok(m.tiles.every((q) => Math.abs(q.w - q.h) <= 1), tag + ': tiles not square');
-        ok(m.tiles.every((q) => q.w >= 40), `${tag}: tile under 40px (${m.tiles[0].w})`);
+        ok(m.tiles.every((q) => q.w >= (r <= 6 && c <= 6 ? 40 : 24)), `${tag}: tile under the floor (${m.tiles[0].w})`);
+        ok(m.tiles.every((q) => q.w <= 64.01), `${tag}: tile over 64px (${m.tiles[0].w})`);
         ok(m.emptyBg !== m.tileBg, tag + ': empty bg equals tile bg');
         ok(m.emptyColour !== m.tileColour, tag + ': empty background-color equals tile background-color (#2 assertion)');
         ok(Math.abs(m.fr.l - (m.cw - m.fr.r)) <= 2, `${tag}: frame margins ${m.fr.l} vs ${m.cw - m.fr.r}`);
@@ -739,8 +811,9 @@ async function main() {
     const css = (html.match(/<style>([\s\S]*?)<\/style>/) || ['', ''])[1];
     ok(css.includes('container-type: inline-size'), 'style lacks container-type: inline-size');
     ok(css.includes('100cqi'), 'style lacks 100cqi');
-    for (const bad of ['repeat(3', '90px', '100vw', '--rows']) ok(!css.includes(bad), 'style contains ' + bad);
-    say('style greps ok: container-type, 100cqi; no repeat(3, 90px, 100vw, --rows');
+    for (const bad of ['repeat(3', '90px', '100vw']) ok(!css.includes(bad), 'style contains ' + bad);
+    ok(css.includes('100svh'), 'style lacks 100svh');
+    say('style greps ok: container-type, 100cqi, 100svh; no repeat(3, 90px, 100vw');
     for (const [w, h] of VIEWS) {
       await page.setViewportSize({ width: w, height: h });
       for (const [r, c] of SIZES) {
@@ -813,20 +886,23 @@ async function main() {
         page.on('console', (m) => { if (m.type() === 'error') errors.push({ text: 'console: ' + m.text(), url: m.location().url }); });
         await page.goto(PAGE_URL);
         await page.addStyleTag({ content: 'html{overflow-y:scroll}' });
-        await setSizeUI(page, 6, 6);
+        for (const [r, c] of [[6, 6], [10, 10]]) {
+        await setSizeUI(page, r, c);
         const m = await page.evaluate(() => {
           const rc = (e) => { const q = e.getBoundingClientRect(); return { l: q.left, r: q.right, t: q.top, b: q.bottom }; };
           return { cw: document.documentElement.clientWidth, iw: window.innerWidth, sw: document.documentElement.scrollWidth, fr: rc(document.getElementById('frame')), well: rc(document.querySelector('.well')), tiles: [...document.querySelectorAll('.tile')].map(rc) };
         });
-        const tag = `${w}x${h} 6x6`;
+        const tag = `${w}x${h} ${r}x${c}`;
         log.push(`${tag}: ${JSON.stringify({ cw: m.cw, iw: m.iw, sw: m.sw, tile: (m.tiles[0].r - m.tiles[0].l).toFixed(1) })}`);
-        await shot(page, dir, `6x6-${w}x${h}.png`);
-        await ctx.close();
+        await shot(page, dir, `${r}x${c}-${w}x${h}.png`);
         ok(m.cw < m.iw, tag + ': no classic scrollbar; pass not meaningful');
         ok(m.sw <= m.cw, `${tag}: horizontal scroll ${m.sw} > ${m.cw}`);
         ok(m.tiles.every((q) => inside(q, m.well)), tag + ': tile outside well');
         ok(inside(m.well, m.fr), tag + ': well outside frame');
         ok(m.fr.l >= 0 && m.fr.r <= m.cw, tag + ': frame outside [0, clientWidth]');
+        ok(m.tiles.every((q) => q.r - q.l >= 23.95), `${tag}: tile under 24px (${(m.tiles[0].r - m.tiles[0].l).toFixed(1)})`);
+        }
+        await ctx.close();
       }
       lines.push('PASS ' + name);
     } catch (e) {
@@ -840,7 +916,7 @@ async function main() {
 
   await run('code-shape', async ({ say }) => {
     const html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
-    for (const f of ['render', 'move', 'setSize', 'shuffle', 'isSolvable', 'isSolved', 'checkWin', 'openNew', 'startNew', 'onDecoded', 'onRejected', 'cropRect', 'openCrop', 'drawCrop', 'moveCrop', 'cutImage', 'cropDone', 'loadPresets', 'parseListing', 'onListed']) {
+    for (const f of ['render', 'move', 'setSize', 'shuffle', 'isSolvable', 'isSolved', 'checkWin', 'openNew', 'startNew', 'onDecoded', 'onRejected', 'cropRect', 'openCrop', 'drawCrop', 'moveCrop', 'cutImage', 'cropDone', 'loadPresets', 'parseListing', 'onListed', 'gridRange', 'applyRange', 'loadSettings']) {
       const re = new RegExp('//[^\\n]*\\r?\\n\\s*function ' + f + '\\b');
       ok(re.test(html), `function ${f} missing or has no comment above`);
       say(`function ${f}: present with comment`);
@@ -858,7 +934,7 @@ async function main() {
       say(`${id}: ${JSON.stringify(info)}`);
       eq(info.tag, 'SELECT', id + ' tag');
       eq(info.ac, 'off', id + ' autocomplete');
-      eq(info.opts, ['3', '4', '5', '6'], id + ' options');
+      eq(info.opts, seq(3, 10).map(String), id + ' options');
       eq(info.val, '3', id + ' default');
     }
     eq(await page.getByLabel('Rows').evaluate((e) => e.id), 'rows', 'Rows label target');
@@ -888,8 +964,8 @@ async function main() {
 
   // size-all: AC2 (#2)
   await run('size-all', async ({ page, dir, say }) => {
-    for (let r = 3; r <= 6; r++) {
-      for (let c = 3; c <= 6; c++) {
+    for (let r = 3; r <= 10; r++) {
+      for (let c = 3; c <= 10; c++) {
         await setSizeUI(page, r, c);
         const boxes = await page.$$eval('#board .tile', (els) => els.map((e) => { const b = e.getBoundingClientRect(); return [Math.round(b.x), Math.round(b.y)]; }));
         eq(boxes.length, r * c, `${r}x${c} tile count`);
@@ -901,7 +977,7 @@ async function main() {
         eq(await timerOf(page), 0, `${r}x${c} timer`);
         ok(!(await page.isVisible('#message')), `${r}x${c} message visible`);
         say(`${r}x${c}: ${boxes.length} tiles, ${c} columns, ${r} rows, solved, moves 0, timer 0s, message hidden`);
-        if (['3x6', '6x3', '4x5', '6x6'].includes(`${r}x${c}`)) await shot(page, dir, `screenshot-${r}x${c}.png`);
+        if (['3x6', '6x3', '4x5', '6x6', '10x10', '3x10', '10x3'].includes(`${r}x${c}`)) await shot(page, dir, `screenshot-${r}x${c}.png`);
       }
     }
   });
@@ -941,7 +1017,7 @@ async function main() {
 
   // size-shuffle: AC4 (#2)
   await run('size-shuffle', async ({ page, dir, say }) => {
-    for (const [r, c] of [[3, 4], [5, 3], [6, 6]]) {
+    for (const [r, c] of [[3, 4], [5, 3], [6, 6], [10, 10], [3, 10]]) {
       await setSizeUI(page, r, c);
       await click(page, r * c - 1 - c);
       await sleep(1200);
@@ -968,7 +1044,7 @@ async function main() {
 
   // size-solvable: path A, #4 V1 at other sizes (#2). Judged by the driver's oracleSolvable, never the app's isSolvable.
   await run('size-solvable', async ({ page, say }) => {
-    for (const [r, c] of [[3, 4], [4, 3], [4, 6], [6, 4], [6, 6]]) {
+    for (const [r, c] of [[3, 4], [4, 3], [4, 6], [6, 4], [6, 6], [10, 10], [3, 10], [10, 3], [9, 10], [10, 9]]) {
       await setSizeUI(page, r, c);
       const boards = await page.evaluate(() => { const out = []; for (let i = 0; i < 500; i++) { shuffle(); out.push(tiles.slice()); } return out; });
       const solved = solvedOf(r * c).join();
@@ -992,6 +1068,16 @@ async function main() {
     });
     say('tile 1 counts by cell: ' + counts.join(' '));
     ok(counts.every((n) => n >= 750 && n <= 1250), 'a cell count is outside 750-1250');
+    // #14: 10x10, 20,000 shuffles; each of the 100 cells expects 200 (about 5 standard deviations either side).
+    await setSizeUI(page, 10, 10);
+    const big = await page.evaluate(() => {
+      const cnt = new Array(100).fill(0);
+      for (let i = 0; i < 20000; i++) { tiles = [...Array(99).keys()].map((k) => k + 1).concat(0); shuffle(); cnt[tiles.indexOf(1)]++; }
+      return cnt;
+    });
+    say('10x10 tile 1 counts by cell: ' + big.join(' '));
+    ok(big.every((n) => n >= 130 && n <= 270), '10x10: a cell count is outside 130-270');
+    eq(big.reduce((a, b) => a + b, 0) / 100, 200, '10x10 mean count');
   }, { shoot: false });
 
   // size-reroll: path A, #4 V4 at 3x4 (#2). Forced solved and unsolvable first draws must be re-rolled.
@@ -1030,7 +1116,7 @@ async function main() {
   // size-win: AC5 (#2)
   await run('size-win', async ({ page, dir, say }) => {
     const msg = page.locator('#message');
-    for (const [r, c, a, b] of [[3, 4, 7, 11], [6, 6, 34, 35]]) {
+    for (const [r, c, a, b] of [[3, 4, 7, 11], [6, 6, 34, 35], [10, 10, 98, 99]]) {
       await setSizeUI(page, r, c);
       await click(page, a);
       ok(!(await msg.isVisible()), `${r}x${c}: message visible after first click`);
@@ -1100,6 +1186,28 @@ async function main() {
     }
   }, { video: true });
 
+  // size-slide-large: AC3 (#14). Legal and illegal clicks on the largest and the widest boards, judged by slideOracle and by the plan's literal boards.
+  await run('size-slide-large', async ({ page, dir, say }) => {
+    const lit = (n, over) => { const b = solvedBoard(n); for (const [i, v] of Object.entries(over)) b[Number(i)] = v; return b; };
+    const cases = [
+      [10, 10, [89, 90, 88, 77], lit(100, { 88: '_', 89: '89', 99: '90' })],
+      [3, 10, [19, 20, 18], lit(30, { 18: '_', 19: '19', 29: '20' })],
+      [10, 3, [26, 27, 25], lit(30, { 25: '_', 26: '26', 29: '27' })],
+    ];
+    for (const [r, c, clicks, want] of cases) {
+      const tag = `${r}x${c}`;
+      await setSizeUI(page, r, c);
+      for (const i of clicks) await click(page, i);
+      const o = slideOracle(r, c, clicks);
+      eq(o.tiles, want, tag + ' oracle against the plan literal');
+      eq(await board(page), o.tiles, tag + ' board');
+      eq(await movesOf(page), 2, tag + ' moves');
+      eq(o.moves, 2, tag + ' oracle moves');
+      say(`${tag}: clicks ${JSON.stringify(clicks)} -> board matches the oracle, moves 2`);
+      await shot(page, dir, `screenshot-${tag}.png`);
+    }
+  });
+
   // ---- #3 image tiles: checks C1 to C8 (plan section 6) ----
   // image-pick: C1. A real file input in the New dialog; choosing a file selects Image; Start opens the crop modal.
   await run('image-pick', async ({ page, say }) => {
@@ -1121,11 +1229,11 @@ async function main() {
     say('file chosen -> Image checked -> Start -> crop dialog -> Done -> 8 image tiles, solved');
   });
 
-  // image-sizes: C2. Every size 3..6 x 3..6 with an image: split, mapping, solved start.
+  // image-sizes: C2. Every size 3..10 x 3..10 with an image: split, mapping, solved start.
   await run('image-sizes', async ({ page, dir, say }) => {
     const fx = FIX['landscape.png'];
-    for (let r = 3; r <= 6; r++) {
-      for (let c = 3; c <= 6; c++) {
+    for (let r = 3; r <= 10; r++) {
+      for (let c = 3; c <= 10; c++) {
         const tag = `${r}x${c}`;
         await newImageUI(page, r, c);
         await cropDoneUI(page);
@@ -1142,7 +1250,7 @@ async function main() {
         eq(await timerOf(page), 0, `${tag} timer`);
         ok(!(await page.isVisible('#message')), `${tag} message visible`);
         say(`${tag}: ${boxes.length} tiles, ${c} columns, ${r} rows, ${pc.count} pieces match the oracle (worst ${pc.worst.toFixed(2)}px), solved, moves 0, timer 0s`);
-        if (['3x6', '6x3', '4x5', '6x6'].includes(tag)) await shot(page, dir, `screenshot-${tag}.png`);
+        if (['3x6', '6x3', '4x5', '6x6', '10x10'].includes(tag)) await shot(page, dir, `screenshot-${tag}.png`);
       }
     }
   });
@@ -1187,6 +1295,31 @@ async function main() {
     eq(sAfter.rgb, sBefore.rgb, 'the same canvas colour moved into the empty index');
     eq(await movesOf(page), 1, 'moves after slide');
     say(`slid tile ${before[nb]} from ${nb} to ${e}: same colour ${JSON.stringify(sAfter.rgb)}, moves 1`);
+    // #14: the same holds on the largest and the widest boards.
+    for (const [r, c] of [[10, 10], [3, 10]]) {
+      const tag = `${r}x${c}`;
+      const o2 = cropOracle(fx.W, fx.H, r, c, 1, fx.W / 2, fx.H / 2);
+      await newImageUI(page, r, c);
+      await cropDoneUI(page);
+      await expectPieces(page, fx, r, c, o2, tag + ' start');
+      for (let n = 0; n < 3; n++) {
+        await page.click('#shuffle');
+        const b2 = (await imgBoard(page)).map((x) => (x === '_' ? 0 : Number(x)));
+        eq([...b2].sort((a, d) => a - d), [...Array(r * c).keys()], `${tag} shuffle ${n} permutation`);
+        ok(oracleSolvable(b2, r, c), `${tag} shuffle ${n}: unsolvable`);
+        ok(b2.join() !== solvedOf(r * c).join(), `${tag} shuffle ${n}: solved`);
+        await expectPieces(page, fx, r, c, o2, `${tag} shuffle ${n}`);
+      }
+      const bef = await imgBoard(page);
+      const e2 = bef.indexOf('_');
+      const nb2 = e2 % c > 0 ? e2 - 1 : e2 + 1;
+      const sB = (await pieceSample(page)).find((p) => p.i === nb2);
+      await click(page, nb2);
+      const sA = (await pieceSample(page)).find((p) => p.i === e2);
+      eq(sA.rgb, sB.rgb, `${tag}: the same canvas colour moved into the empty index`);
+      eq(await movesOf(page), 1, `${tag}: moves after slide`);
+      say(`${tag}: 3 shuffles oracle-solvable with every piece home; slid tile ${bef[nb2]} from ${nb2} to ${e2}, same colour ${JSON.stringify(sA.rgb)}, moves 1`);
+    }
   });
 
   // image-no-numbers: C3. No digit text and no digit drawn into the pixels.
@@ -1521,7 +1654,7 @@ async function main() {
   await run('image-layout', async ({ page, dir, say }) => {
     for (const [w, h] of VIEWS) {
       await page.setViewportSize({ width: w, height: h });
-      for (const [r, c] of [[3, 3], [6, 6], [3, 6], [6, 3]]) {
+      for (const [r, c] of [[3, 3], [6, 6], [3, 6], [6, 3], [10, 10], [3, 10], [10, 3]]) {
         await newImageUI(page, r, c);
         await cropDoneUI(page);
         const m = await page.evaluate(() => {
@@ -1534,7 +1667,7 @@ async function main() {
         say(`${tag}: tile ${m.tiles[0].w.toFixed(1)}px`);
         ok(m.sw <= m.cw, `${tag}: horizontal scroll ${m.sw} > ${m.cw}`);
         ok(m.tiles.every((q) => Math.abs(q.w - q.h) <= 1), tag + ': tiles not square');
-        ok(m.tiles.every((q) => q.w >= 40), `${tag}: tile under 40px`);
+        ok(m.tiles.every((q) => q.w >= (r <= 6 && c <= 6 ? 40 : 24)), `${tag}: tile under the floor`);
         ok(m.tiles.every((q) => inside(q, m.well)), tag + ': tile outside well');
         ok(inside(m.well, m.fr), tag + ': well outside frame');
         ok(m.canvases.every((x) => ['l', 'r', 't', 'b'].every((k) => Math.abs(x.tile[k] - x.canvas[k]) <= 1)), tag + ': canvas box differs from tile box');
@@ -1566,7 +1699,7 @@ async function main() {
       for (const k of m.controls) ok(inside(k.box, m.d), `${tag}: ${k.name} outside the dialog`);
       if (withView) {
         ok(inside(m.view, m.d), tag + ': crop view outside the dialog');
-        ok(Math.abs(m.view.w - m.view.h * A) <= 1, `${tag}: crop view ${m.view.w}x${m.view.h} not within 1px of aspect ${A}`);
+        ok(Math.abs(m.view.h - m.view.w / A) <= 1, `${tag}: crop view ${m.view.w}x${m.view.h} not within 1px of aspect ${A} (height vs width / aspect, the dimension openCrop rounds)`);
       }
       const bg = await colours(page, sel);
       nonVacuous(bg, tag + ' dialog background', say);
@@ -1583,7 +1716,7 @@ async function main() {
       ok(!isGreen(rgbOf(await style(page, '#new-error', 'color'))), 'new-error is green');
       await shot(page, dir, `new-${w}.png`);
       await page.click('#new-cancel');
-      for (const [r, c] of [[3, 6], [6, 3]]) {
+      for (const [r, c] of [[3, 6], [6, 3], [3, 10], [10, 3]]) {
         await newImageUI(page, r, c);
         await verify('#crop-dialog', `${w}x${h} crop ${r}x${c}`, true, c / r);
         await shot(page, dir, `crop-${r}x${c}-${w}.png`);
@@ -1604,6 +1737,8 @@ async function main() {
     const indexBytes = fs.readFileSync(path.join(ROOT, 'index.html'));
     const put = (root, rel, bytes) => { const f = path.join(tmpRoot, root, rel); fs.mkdirSync(path.dirname(f), { recursive: true }); fs.writeFileSync(f, bytes); };
     for (const r of ['A', 'B', 'C', 'D']) put(r, 'index.html', indexBytes);
+    const shippedSettings = fs.readFileSync(path.join(ROOT, 'settings.json'));
+    for (const r of ['A', 'B', 'C', 'D']) put(r, 'settings.json', shippedSettings);
     ok(Buffer.compare(fs.readFileSync(path.join(tmpRoot, 'A', 'index.html')), indexBytes) === 0, 'A/index.html is not a byte copy');
     put('A', 'images/Grad – Landscape ’1’.png', FIX['landscape.png'].buffer);
     put('A', 'images/portrait.PNG', FIX['portrait.png'].buffer);
@@ -1619,6 +1754,9 @@ async function main() {
     S.c = await serve(path.join(tmpRoot, 'C'), async (o) => (await httpGet(o + '/images/')).body.includes('no listing'));
     S.d = await serve(path.join(tmpRoot, 'D'), async (o) => { const r = await httpGet(o + '/images/'); return r.status === 200 && !r.body.includes('<li>'); });
     cn = await canned(FIX['landscape.png'].buffer);
+    for (const [k, body] of [['s-edit', S_EDIT], ['s-missing', null], ['s-bad', S_BAD], ['s-values', S_VALUES], ['s-near', S_NEAR]]) {
+      S[k] = await serve(settingsRoot(k, body), settingsProbe(body));
+    }
   } catch (e) {
     srvErr = e.message;
   }
@@ -2014,7 +2152,7 @@ async function main() {
       await pg.waitForSelector('#crop-dialog[open]');
       say('offered exactly ["ok","ok two"]; Start ok opened the crop dialog');
     });
-    for (const p of cn.requests) ok(['/', '/index.html', '/images/', '/images/ok.png'].includes(p), 'unexpected request path ' + p);
+    for (const p of cn.requests) ok(['/', '/index.html', '/settings.json', '/images/', '/images/ok.png'].includes(p), 'unexpected request path ' + p);
     say('canned origin requests: ' + JSON.stringify(cn.requests));
     cn.count = 0;
     cn.requests.length = 0;
@@ -2033,6 +2171,288 @@ async function main() {
     say('302 to another origin: treated as unavailable, no request to example.invalid; canned requests ' + JSON.stringify(cn.requests));
   });
 
+  // ---- #14 grid size settings. Servers are the s-* fixture roots, the repo root and the canned server (settings-late only). ----
+  // A page with its own request list, also feeding the shared request and console capture.
+  async function watched(pageUrl) {
+    const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+    const page = await ctx.newPage();
+    const seen = [];
+    page.on('request', (r) => { requests.push(r.url()); seen.push(r.url()); });
+    page.on('pageerror', (e) => errors.push({ text: 'pageerror: ' + e.message, url: '' }));
+    page.on('console', (m) => { if (m.type() === 'error') errors.push({ text: 'console: ' + m.text(), url: m.location().url }); });
+    await page.goto(pageUrl);
+    return { ctx, page, seen };
+  }
+
+  // settings-shipped: AC1. The shipped settings.json offers 3..10 for both, every size plays, a preset works at 10x10.
+  await run('settings-shipped', async ({ page, dir, say }) => {
+    need();
+    const text = fs.readFileSync(path.join(ROOT, 'settings.json'), 'utf8').replace(/\r\n/g, '\n');
+    eq(text, SHIPPED_TEXT, 'settings.json text');
+    const hits = () => S.real.log.filter((e) => e.path === '/settings.json' && e.code === 200).length;
+    const n0 = hits();
+    await page.goto(S.real.origin + '/');
+    await ready(page);
+    for (let k = 0; k < 40 && hits() <= n0; k++) await sleep(100);
+    ok(hits() > n0, 'no GET /settings.json 200 in the Python log for this load');
+    eq(await optionsOf(page), { rows: seq(3, 10), cols: seq(3, 10) }, 'options');
+    eq(await page.evaluate(() => [document.getElementById('rows').value, document.getElementById('cols').value]), ['3', '3'], 'selects');
+    eq(await board(page), SOLVED, 'initial board');
+    await page.click('#new');
+    await shot(page, dir, 'new-dialog.png');
+    await page.click('#new-cancel');
+    for (let r = 3; r <= 10; r++) {
+      for (let c = 3; c <= 10; c++) {
+        const tag = `${r}x${c}`;
+        await setSizeUI(page, r, c);
+        await gridOf(page, r, c, tag);
+        eq(await board(page), solvedBoard(r * c), tag + ' labels');
+        eq(await movesOf(page), 0, tag + ' moves');
+        eq(await timerOf(page), 0, tag + ' timer');
+        ok(!(await page.isVisible('#message')), tag + ' message visible');
+      }
+    }
+    say('all 64 sizes 3..10 x 3..10: tile count, columns, rows, labels, moves 0, timer 0, message hidden');
+    await page.click('#new');
+    await presetRowVisible(page);
+    const first = (await presetOptions(page))[0];
+    ok(first, 'no preset picture in images/');
+    await page.selectOption('#rows', '10');
+    await page.selectOption('#cols', '10');
+    await page.selectOption('#preset', { label: first.text });
+    await page.click('#new-start');
+    await page.waitForSelector('#crop-dialog[open]');
+    await cropDoneUI(page);
+    eq(await page.$$eval('#board .tile.image', (e) => e.length), 99, 'image tiles');
+    eq(await page.$$eval('#board .tile.image', (els) => els.every((e) => e.querySelectorAll('canvas').length === 1 && e.textContent === '')), true, 'one canvas, no text per tile');
+    eq(await imgBoard(page), solvedBoard(100), 'image labels');
+    await shot(page, dir, 'preset-10x10.png');
+    const nb = 98, e0 = 99;
+    const sB = (await pieceSample(page)).find((p) => p.i === nb);
+    await click(page, nb);
+    const sA = (await pieceSample(page)).find((p) => p.i === e0);
+    eq(sA.rgb, sB.rgb, 'the same canvas colour moved into the empty cell');
+    eq(await movesOf(page), 1, 'moves after the slide');
+    say(`preset "${first.text}" at 10x10: 99 canvases, no text; one slide moved the canvas from ${nb} to ${e0}, moves 1`);
+  }, { url: U(S.real) });
+
+  // settings-edit: AC2. The range follows the file, on the next load; larger sizes play and fit.
+  await run('settings-edit', async ({ page, dir, say }) => {
+    need();
+    const file = path.join(tmpRoot, 's-edit', 'settings.json');
+    const mark = errors.length;
+    try {
+      await ready(page);
+      eq(await optionsOf(page), { rows: seq(4, 8), cols: seq(3, 12) }, '(a) options');
+      eq(await board(page), solvedBoard(12), '(a) board');
+      await gridOf(page, 4, 3, '(a) 4x3');
+      eq(await movesOf(page), 0, '(a) moves');
+      await page.click('#new');
+      eq(await page.evaluate(() => [document.getElementById('rows').value, document.getElementById('cols').value]), ['4', '3'], '(a) selects');
+      await page.waitForFunction((t) => { const n = document.getElementById('preset-note'); return !n.hidden && n.textContent === t; }, NO_PRESETS);
+      eq(errors.slice(mark), [], '(a) console output');
+      await page.click('#new-cancel');
+      say('(a) rows 4..8, cols 3..12; board starts 4x3; New opens at 4/3 with no console output');
+      fs.writeFileSync(file, '{"grid":{"rows":{"min":5,"max":5},"columns":{"min":7,"max":9}}}');
+      await page.reload();
+      await ready(page);
+      eq(await optionsOf(page), { rows: [5], cols: seq(7, 9) }, '(b) options');
+      eq(await board(page), solvedBoard(35), '(b) board');
+      await gridOf(page, 5, 7, '(b) 5x7');
+      say('(b) file rewritten, reload: rows [5], cols 7..9, board 5x7');
+      fs.writeFileSync(file, S_EDIT);
+      await page.reload();
+      await ready(page);
+      eq(await optionsOf(page), { rows: seq(4, 8), cols: seq(3, 12) }, '(c) options');
+      await setSizeUI(page, 8, 12);
+      await gridOf(page, 8, 12, '(c) 8x12');
+      eq(await board(page), solvedBoard(96), '(c) labels');
+      await click(page, 83);
+      eq(await board(page), slideOracle(8, 12, [83]).tiles, '(c) after the legal click');
+      eq(await movesOf(page), 1, '(c) moves after the legal click');
+      await click(page, 84);
+      const o = slideOracle(8, 12, [83, 84]);
+      eq(await board(page), o.tiles, '(c) after the row-wrap click');
+      eq(await movesOf(page), o.moves, '(c) moves after the row-wrap click');
+      for (let n = 0; n < 3; n++) {
+        await page.click('#shuffle');
+        const b = (await board(page)).map((x) => (x === '_' ? 0 : Number(x)));
+        ok(oracleSolvable(b, 8, 12), `(c) shuffle ${n}: unsolvable`);
+        ok(b.join() !== solvedOf(96).join(), `(c) shuffle ${n}: solved`);
+      }
+      say('(c) 8x12: 96 tiles, 12 columns, 8 rows; legal and row-wrap clicks match slideOracle; 3 shuffles oracle-solvable and unsolved');
+      const fx = FIX['landscape.png'];
+      await newImageUI(page, 4, 12);
+      await cropDoneUI(page);
+      eq(await imgBoard(page), solvedBoard(48), '(d) labels');
+      const pc = await expectPieces(page, fx, 4, 12, cropOracle(fx.W, fx.H, 4, 12, 1, fx.W / 2, fx.H / 2), '(d) 4x12');
+      eq(pc.count, 47, '(d) piece count');
+      say(`(d) 4x12 image: ${pc.count} pieces match the oracle (worst ${pc.worst.toFixed(2)}px)`);
+      for (const [w, h] of [[360, 740], [1280, 800]]) {
+        await page.setViewportSize({ width: w, height: h });
+        await setSizeUI(page, 8, 12);
+        expectFits(await fitMetrics(page), `(e) ${w}x${h} 8x12`, 20);
+        await shot(page, dir, `8x12-${w}.png`);
+      }
+      ok(!(await optionsOf(page)).rows.includes(12), '(e) 12 rows offered with rows max 8');
+      fs.writeFileSync(file, '{"grid":{"rows":{"min":3,"max":12},"columns":{"min":3,"max":12}}}');
+      await page.reload();
+      await ready(page);
+      eq((await optionsOf(page)).rows, seq(3, 12), '(e) rows after the edit');
+      for (const [w, h] of [[360, 740], [1280, 800]]) {
+        await page.setViewportSize({ width: w, height: h });
+        await setSizeUI(page, 12, 12);
+        await gridOf(page, 12, 12, `(e) ${w}x${h} 12x12`);
+        const m = await fitMetrics(page);
+        expectFits(m, `(e) ${w}x${h} 12x12`, 20);
+        say(`(e) ${w}x${h} 12x12: tile ${m.tiles[0].w.toFixed(1)}px, message bottom ${m.msgB.toFixed(0)} of ${m.ih}`);
+        await shot(page, dir, `12x12-${w}.png`);
+      }
+    } finally {
+      fs.writeFileSync(file, S_EDIT);
+    }
+  }, { url: U(S['s-edit']) });
+
+  // settings-values: AC2. Bad values fall back per value; a served file with bad values and a nearest-size start.
+  await run('settings-values', async ({ page, say }) => {
+    need();
+    const D = [3, 10, 3, 10];
+    const table = [
+      [null, D], [7, D], ['x', D], [[], D], [{}, D], [{ grid: null }, D], [{ grid: [] }, D], [{ grid: { rows: null, columns: '3-10' } }, D],
+      [{ grid: { rows: { min: 4, max: 8 }, columns: { min: 3, max: 12 } } }, [4, 8, 3, 12]],
+      [{ grid: { rows: { min: 4, max: 8 } }, theme: 'dark' }, [4, 8, 3, 10]],
+      [{ grid: { rows: { min: '4', max: 8 } } }, [3, 8, 3, 10]],
+      [{ grid: { rows: { min: 4.5, max: 8 } } }, [3, 8, 3, 10]],
+      [{ grid: { rows: { min: true, max: 8 } } }, [3, 8, 3, 10]],
+      [{ grid: { rows: { min: 2, max: 13 } } }, D],
+      [{ grid: { rows: { min: -1, max: 0 } } }, D],
+      [{ grid: { rows: { min: 3, max: 12 } } }, [3, 12, 3, 10]],
+      [{ grid: { rows: { min: 9, max: 4 } } }, D],
+      [{ grid: { rows: { min: 11 } } }, D],
+      [{ grid: { columns: { max: 3 } } }, [3, 10, 3, 3]],
+      [{ grid: { rows: { min: 10, max: 10 } } }, [10, 10, 3, 10]],
+    ];
+    for (const [input, w] of table) {
+      const got = await page.evaluate((s) => gridRange(s), input);
+      eq(got, { rows: { min: w[0], max: w[1] }, cols: { min: w[2], max: w[3] } }, 'gridRange(' + JSON.stringify(input) + ')');
+    }
+    say(`(i) ${table.length} gridRange inputs match the table`);
+    const mark = errors.length;
+    await withPage(S['s-values'].origin + '/', async (pg) => {
+      await ready(pg);
+      eq(await optionsOf(pg), { rows: seq(3, 8), cols: seq(3, 10) }, '(ii) options');
+      eq(await board(pg), SOLVED, '(ii) board');
+      ok(await pg.$eval('#new-error', (e) => e.hidden), '(ii) error visible');
+      await pg.click('#new');
+      await pg.waitForFunction((t) => { const n = document.getElementById('preset-note'); return !n.hidden && n.textContent === t; }, NO_PRESETS);
+      ok(await pg.$eval('#new-error', (e) => e.hidden), '(ii) error visible after New');
+    });
+    eq(errors.slice(mark), [], '(ii) console output');
+    say('(ii) served bad values: rows 3..8, cols 3..10, board 3x3, no error, no console output');
+    await withPage(S['s-near'].origin + '/', async (pg) => {
+      await ready(pg);
+      eq(await optionsOf(pg), { rows: seq(5, 7), cols: [4] }, '(iii) options');
+      eq(await board(pg), solvedBoard(20), '(iii) board');
+      await gridOf(pg, 5, 4, '(iii) 5x4');
+      await pg.click('#new');
+      eq(await pg.evaluate(() => [document.getElementById('rows').value, document.getElementById('cols').value]), ['5', '4'], '(iii) selects');
+      await pg.click('#new-cancel');
+    });
+    say('(iii) rows 5..7, cols 4..4: board starts 5x4, selects 5/4');
+  });
+
+  // settings-fallback: AC5. An unreadable settings.json (file://, missing, malformed) leaves the defaults and shows nothing.
+  await run('settings-fallback', async ({ page, say }) => {
+    need();
+    const DEFAULT = { rows: seq(3, 10), cols: seq(3, 10) };
+    const bodyText = (pg) => pg.evaluate(() => document.body.innerText);
+    await ready(page);
+    eq(await optionsOf(page), DEFAULT, 'reference options');
+    const ref = await bodyText(page);
+    const mark = errors.length;
+    const w = await watched(PAGE_URL);
+    try {
+      await ready(w.page);
+      eq(await optionsOf(w.page), DEFAULT, '(a) options');
+      eq(await board(w.page), SOLVED, '(a) board');
+      eq(w.seen.filter((u) => u !== PAGE_URL && u !== 'data:,'), [], '(a) requests other than the page');
+      eq(errors.slice(mark), [], '(a) console output');
+      say('(a) file://: options 3..10, board 3x3, requests ' + JSON.stringify(w.seen) + ', no console output');
+    } finally {
+      await w.ctx.close();
+    }
+    const settingsUrl = S['s-missing'].origin + '/settings.json';
+    expectConsole(settingsUrl);
+    for (const [tag, key] of [['(b) missing', 's-missing'], ['(c) malformed', 's-bad']]) {
+      const m0 = errors.length;
+      await withPage(S[key].origin + '/', async (pg) => {
+        await ready(pg);
+        eq(await optionsOf(pg), DEFAULT, tag + ' options');
+        eq(await board(pg), SOLVED, tag + ' board');
+        ok(await pg.$eval('#new-error', (e) => e.hidden), tag + ' #new-error visible');
+        ok(await pg.$eval('#message', (e) => e.hidden), tag + ' #message visible');
+        eq(await bodyText(pg), ref, tag + ' innerText');
+        await click(pg, 7);
+        eq(await movesOf(pg), 1, tag + ' moves after one slide');
+        await pg.click('#new');
+        await pg.waitForFunction((t) => { const n = document.getElementById('preset-note'); return !n.hidden && n.textContent === t; }, NO_PRESETS);
+        ok(await pg.$eval('#new-error', (e) => e.hidden), tag + ' #new-error visible after New');
+        await pg.click('#new-cancel');
+        await setSizeUI(pg, 4, 4);
+        eq(await board(pg), solvedBoard(16), tag + ' 4x4 board');
+      });
+      const got = errors.slice(m0);
+      if (key === 's-bad') eq(got, [], tag + ' console output');
+      else ok(got.every((e) => e.url === settingsUrl && e.text.startsWith('console: Failed to load resource: the server responded with a status of 404')), `${tag}: console output other than the settings.json 404: ${JSON.stringify(got)}`);
+      say(`${tag}: options 3..10, board 3x3, no message, same text as the reference, slide, New and 4x4 work; console entries ${got.length}`);
+    }
+  }, { url: U(S.real) });
+
+  // settings-late: AC5, W1. Settings that arrive late update an open New dialog in place and keep the player's picks.
+  if (cn) {
+    cn.count = 0;
+    cn.listing = () => ({ body: listingPage([]) });
+    cn.settings = () => ({ delay: 1500, body: '{"grid":{"rows":{"min":4,"max":8}}}' });
+  }
+  await run('settings-late', async ({ page, dir, say }) => {
+    need();
+    const mark = errors.length;
+    eq(await optionsOf(page), { rows: seq(3, 10), cols: seq(3, 10) }, 'options before arrival');
+    eq(await board(page), SOLVED, 'board before arrival');
+    await page.click('#new');
+    ok(await isOpen(page, 'new-dialog'), 'New dialog not open');
+    await page.selectOption('#cols', '7');
+    eq(await optionsOf(page), { rows: seq(3, 10), cols: seq(3, 10) }, 'settings already applied before the pick');
+    await ready(page);
+    ok(await isOpen(page, 'new-dialog'), 'New dialog closed by the late settings');
+    eq(await optionsOf(page), { rows: seq(4, 8), cols: seq(3, 10) }, 'options after arrival');
+    eq(await page.evaluate(() => [document.getElementById('rows').value, document.getElementById('cols').value]), ['4', '7'], 'selects after arrival');
+    eq(await board(page), solvedBoard(12), 'board after arrival');
+    await shot(page, dir, 'dialog-after-arrival.png');
+    await page.click('#new-start');
+    await page.waitForFunction(() => !document.getElementById('new-dialog').open);
+    eq(await board(page), solvedBoard(28), 'board after Start');
+    await gridOf(page, 4, 7, 'after Start 4x7');
+    eq(errors.slice(mark), [], 'console output');
+    say('late settings rows 4..8: dialog stayed open, options rows 4..8 cols 3..10, selects 4/7 (rows clamped, cols pick kept), board 4x3; Start gave 4x7');
+  }, { url: cn ? cn.origin + '/' : undefined });
+  if (cn) cn.settings = null;
+
+  // readme-settings: Docs. The README documents settings.json after the Run section.
+  await run('readme-settings', async ({ say }) => {
+    const readme = fs.readFileSync(path.join(ROOT, 'README.md'), 'utf8').replace(/\r\n/g, '\n');
+    const iRun = readme.indexOf('## Run'), iSet = readme.indexOf('## Settings');
+    ok(iRun !== -1 && iSet > iRun, 'README lacks ## Settings after ## Run');
+    const rest = readme.slice(iSet + 3);
+    const end = rest.search(/\n(## |<!--)/);
+    const section = end === -1 ? rest : rest.slice(0, end);
+    const m = section.match(/```json\n([\s\S]*?)```/);
+    ok(m, 'no ```json block in the Settings section');
+    eq(JSON.parse(m[1]), JSON.parse(fs.readFileSync(path.join(ROOT, 'settings.json'), 'utf8')), 'README json block against settings.json');
+    for (const w of ['settings.json', 'rows', 'columns', 'min', 'max', '12', 'http', 'file://']) ok(section.includes(w), `Settings section lacks "${w}"`);
+    say('README Settings section: after Run, json block equals settings.json, keywords present');
+  }, { shoot: false });
+
   // preset-requests: AC6. The Python servers only ever saw the page and images/.
   await run('preset-requests', async ({ say }) => {
     need();
@@ -2041,7 +2461,7 @@ async function main() {
     for (const [k, s] of Object.entries(S)) {
       total += s.log.length;
       say(`${k}: ${s.log.length} requests: ${JSON.stringify([...new Set(s.log.map((e) => e.path))])}`);
-      for (const e of s.log) ok(e.path === '/' || e.path === '/index.html' || e.path.startsWith('/images/'), `${k}: unexpected GET ${e.path}`);
+      for (const e of s.log) ok(e.path === '/' || e.path === '/index.html' || e.path === '/settings.json' || e.path.startsWith('/images/'), `${k}: unexpected GET ${e.path}`);
       ok(!s.log.some((e) => e.path === '/favicon.ico'), k + ': /favicon.ico requested');
     }
     ok(total > 0, 'server logs are empty');
@@ -2106,23 +2526,24 @@ async function main() {
       ...sh('git ls-files --others --exclude-standard'),
     ]);
     say('changed set: ' + [...changed].join(', '));
-    const bad = [...changed].filter((f) => f !== 'index.html' && f !== 'README.md' && !f.startsWith('test-results/') && !(f.startsWith('images/') && !f.slice(7).includes('/') && R1.test(f)));
-    eq(bad, [], 'files outside index.html, README.md, test-results/** and images/<image>');
+    const bad = [...changed].filter((f) => f !== 'index.html' && f !== 'settings.json' && f !== 'README.md' && !f.startsWith('test-results/') && !(f.startsWith('images/') && !f.slice(7).includes('/') && R1.test(f)));
+    eq(bad, [], 'files outside index.html, settings.json, README.md, test-results/** and images/<image>');
     ok(changed.has('index.html'), 'index.html not in change set');
     ok(changed.has('README.md'), 'README.md not in change set');
-    ok([...changed].some((f) => f.startsWith('images/')), 'no images/ file in change set');
+    ok(changed.has('settings.json'), 'settings.json not in change set');
     const tracked = sh('git ls-files images/');
     ok(tracked.length >= 1, 'no tracked file under images/');
     eq(tracked.filter((f) => !R1.test(f)), [], 'tracked files under images/ without a recognised extension');
     const html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
     const pats = { 'src=': /src=/, 'href= (not #)': /href=(?!["']#)/, '@import': /@import/, 'url(': /url\(/, 'type="module"': /type="module"/, 'fetch(': /fetch\(/, XMLHttpRequest: /XMLHttpRequest/, '@font-face': /@font-face/, '<link': /<link/ };
-    const want = { 'fetch(': 2, '<link': 1, 'href= (not #)': 1 };
+    const want = { 'fetch(': 3, '<link': 1, 'href= (not #)': 1 };
     for (const [k, re] of Object.entries(pats)) {
       const n = (html.match(new RegExp(re.source, 'g')) || []).length;
       say(`grep ${k}: ${n} matches`);
       eq(n, want[k] || 0, `grep ${k}`);
     }
     ok(html.includes("fetch('images/'"), "fetch('images/' missing");
+    eq((html.match(/fetch\('settings\.json'/g) || []).length, 1, "fetch('settings.json' count");
     eq(html.match(/<link[^>]*>/g), ['<link rel="icon" href="data:,">'], 'the one <link>');
     eq(html.match(/href=[^>\s]*/g), ['href="data:,"'], 'the one href=');
   }, { shoot: false });
@@ -2165,7 +2586,7 @@ async function main() {
       if (u === PAGE_URL || u === 'data:,') return true;
       let q;
       try { q = new URL(u); } catch (_) { return false; }
-      return driverOrigins.has(q.origin) && (q.pathname === '/' || q.pathname === '/index.html' || q.pathname.startsWith('/images/'));
+      return driverOrigins.has(q.origin) && (q.pathname === '/' || q.pathname === '/index.html' || q.pathname === '/settings.json' || q.pathname.startsWith('/images/'));
     };
     eq(uniq.filter((u) => !allowed(u)), [], 'urls other than the page, the data icon and same-origin images/');
   }, { shoot: false });

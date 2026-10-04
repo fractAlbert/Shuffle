@@ -1,0 +1,6 @@
+{
+  "grid": {
+    "rows": { "min": 3, "max": 10 },
+    "columns": { "min": 3, "max": 10 }
+  }
+}
