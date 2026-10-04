@@ -1,0 +1,1 @@
+flipped before the delayed settings arrived: back "Shuffle 3×3", then "Shuffle 4×3" with 12 cells; flipping back works

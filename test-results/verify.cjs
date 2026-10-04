@@ -1,4 +1,4 @@
-// Verification driver (test tooling, not app code). See plan section 6 of issues #1, #2, #3, #4, #5, #7, #13 and #14.
+// Verification driver (test tooling, not app code). See plan section 6 of issues #1, #2, #3, #4, #5, #7, #13, #14 and #15.
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -418,6 +418,141 @@ function expectFits(m, tag, floor) {
   ok(m.msgB <= m.ih, `${tag}: message bottom ${m.msgB} beyond viewport ${m.ih}`);
 }
 
+// ---- #15 helpers. Expectations come from plan #15 sections 2, 5 and 6, never from the app's code. ----
+const S_FLIP = '{"grid":{"rows":{"min":3,"max":12},"columns":{"min":3,"max":12}}}';
+const TIMES = '×';
+const pairs = (lo, hi) => seq(lo, hi).flatMap((r) => seq(lo, hi).map((c) => [r, c]));
+// Click Flip, then wait until the plate and the button show the state the click asked for and no animation is running.
+const flipUI = async (page) => {
+  const want = (await page.getAttribute('#flip', 'aria-pressed')) !== 'true';
+  await page.click('#flip');
+  await page.waitForFunction((w) => {
+    const p = document.getElementById('plate');
+    return p.classList.contains('flipped') === w && document.getElementById('flip').getAttribute('aria-pressed') === String(w) && p.getAnimations().length === 0;
+  }, want);
+};
+// Boxes of the back and its parts, the caption text, the cells, scroll widths and the bottom of #message (shown for the measurement).
+const backGeom = (page) => page.evaluate(() => {
+  const rc = (e) => { const q = e.getBoundingClientRect(); return { l: q.left, r: q.right, t: q.top, b: q.bottom, w: q.width, h: q.height }; };
+  const pic = document.getElementById('back-picture'), grid = document.getElementById('back-grid');
+  const showsPicture = getComputedStyle(pic).display !== 'none';
+  const showsGrid = getComputedStyle(grid).display !== 'none';
+  const msg = document.getElementById('message');
+  const was = msg.hidden;
+  msg.hidden = false;
+  const msgB = rc(msg).b;
+  msg.hidden = was;
+  const cells = [...grid.children];
+  return {
+    back: rc(document.getElementById('back')), frame: rc(document.getElementById('frame')),
+    panel: rc(showsPicture ? pic : grid), showsPicture, showsGrid,
+    caption: rc(document.getElementById('back-caption')), capText: document.getElementById('back-caption').textContent,
+    maker: rc(document.querySelector('.back-maker')), mark: rc(document.querySelector('.back-mark')),
+    cells: showsGrid ? cells.map((e) => e.textContent || '_') : [],
+    empties: showsGrid ? cells.filter((e) => e.classList.contains('empty')).length : 0,
+    emptyLast: showsGrid && cells.length > 0 && cells[cells.length - 1].classList.contains('empty'),
+    sw: document.documentElement.scrollWidth, cw: document.documentElement.clientWidth, ih: window.innerHeight, msgB,
+  };
+});
+// Throw unless the back of an r x c puzzle is laid out as plan #15 D2 and D5 say.
+function expectBackLayout(g, r, c, tag) {
+  const near = (a, b) => Math.abs(a - b) <= 0.5;
+  ok(near(g.back.l, g.frame.l) && near(g.back.r, g.frame.r) && near(g.back.t, g.frame.t) && near(g.back.b, g.frame.b), `${tag}: back ${JSON.stringify(g.back)} differs from frame ${JSON.stringify(g.frame)}`);
+  for (const k of ['panel', 'caption', 'maker', 'mark']) ok(inside(g[k], g.back), `${tag}: ${k} ${JSON.stringify(g[k])} outside the back ${JSON.stringify(g.back)}`);
+  for (const k of ['caption', 'maker', 'mark']) ok(!overlap(g.panel, g[k]), `${tag}: panel overlaps ${k}`);
+  ok(!overlap(g.maker, g.mark), tag + ': maker overlaps mark');
+  ok(!overlap(g.maker, g.caption), tag + ': maker overlaps caption');
+  ok(g.caption.t >= g.panel.b - 0.5, `${tag}: caption top ${g.caption.t} above panel bottom ${g.panel.b}`);
+  ok(g.capText.trim().length > 0, tag + ': caption text is empty');
+  ok(g.caption.h >= 10, `${tag}: caption ${g.caption.h}px tall, less than one line`);
+  const cc = (g.caption.l + g.caption.r) / 2, pc = (g.panel.l + g.panel.r) / 2;
+  ok(Math.abs(cc - pc) <= 2, `${tag}: caption centre ${cc} vs panel centre ${pc}`);
+  ok(Math.abs(g.panel.w / c - g.panel.h / r) <= 1, `${tag}: panel ${g.panel.w}x${g.panel.h} not at ${c}:${r}`);
+  ok(g.sw <= g.cw, `${tag}: horizontal scroll ${g.sw} > ${g.cw}`);
+  ok(g.msgB <= g.ih, `${tag}: message bottom ${g.msgB} beyond viewport ${g.ih}`);
+}
+// Read the whole backing store of #back-picture: sizes, non-grey pixel count, samples at the given fractions, and the largest step across every internal cut.
+const backPixels = (page, rows, cols, fracs) => page.evaluate(([rows, cols, fracs]) => {
+  const cv = document.getElementById('back-picture');
+  const W = cv.width, H = cv.height;
+  const d = cv.getContext('2d').getImageData(0, 0, W, H).data;
+  const px = (x, y) => { const i = 4 * (y * W + x); return [d[i], d[i + 1], d[i + 2]]; };
+  let nonGrey = 0;
+  for (let i = 0; i < d.length; i += 4) if (d[i] !== d[i + 1] || d[i + 1] !== d[i + 2]) nonGrey++;
+  const samples = fracs.map(([fx, fy]) => {
+    const x = Math.min(W - 1, Math.floor(fx * W)), y = Math.min(H - 1, Math.floor(fy * H));
+    return { fx: (x + 0.5) / W, fy: (y + 0.5) / H, rgb: px(x, y) };
+  });
+  let stepX = 0, stepY = 0;
+  for (let k = 1; k < cols; k++) { const xk = Math.round(k * W / cols); for (let y = 0; y < H; y++) stepX = Math.max(stepX, Math.abs(px(xk - 1, y)[0] - px(xk, y)[0])); }
+  for (let k = 1; k < rows; k++) { const yk = Math.round(k * H / rows); for (let x = 0; x < W; x++) stepY = Math.max(stepY, Math.abs(px(x, yk - 1)[0] - px(x, yk)[0])); }
+  return { W, H, cssW: parseFloat(cv.style.width), cssH: parseFloat(cv.style.height), dpr: window.devicePixelRatio, nonGrey, samples, stepX, stepY };
+}, [rows, cols, fracs]);
+// Luma the greyscale back must show at fraction (fxF, fyF) of the crop o of fixture fx: the gradient colour R = 255x/(W-1), G = 255y/(H-1), B = 128 (#3 D9), through Rec. 601.
+function lumaOracle(fx, o, fxF, fyF) {
+  const x = o.sx + fxF * o.cw, y = o.sy + fyF * o.ch;
+  const R = 255 * x / (fx.W - 1), G = 255 * y / (fx.H - 1);
+  return 0.299 * R + 0.587 * G + 0.114 * 128;
+}
+// Screenshot clip, decoded in the page (no request): bright (R > 180) pixel counts per x-band, and the non-grey pixel count inside grey.
+// A band is [name, x0, x1] in clip px (a negative x counts from the right edge); bands count only y in [radius, H - radius].
+async function shotStats(page, clip, bands, grey, radius = 14) {
+  const b64 = (await page.screenshot({ clip })).toString('base64');
+  return page.evaluate(async ([b64, bands, grey, radius]) => {
+    const bin = atob(b64);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    const bmp = await createImageBitmap(new Blob([bytes], { type: 'image/png' }));
+    const W = bmp.width, H = bmp.height;
+    const g = new OffscreenCanvas(W, H).getContext('2d', { willReadFrequently: true });
+    g.drawImage(bmp, 0, 0);
+    const d = g.getImageData(0, 0, W, H).data;
+    const out = { W, H, bright: {}, nonGrey: 0 };
+    for (const [name, a, b] of bands) {
+      const x0 = a < 0 ? W + a : a, x1 = b < 0 ? W + b : b;
+      let n = 0;
+      for (let y = radius; y <= H - radius; y++) for (let x = x0; x < x1; x++) if (d[4 * (y * W + x)] > 180) n++;
+      out.bright[name] = n;
+    }
+    for (let y = Math.max(0, Math.floor(grey.y)); y < Math.min(H, Math.ceil(grey.y + grey.h)); y++) {
+      for (let x = Math.max(0, Math.floor(grey.x)); x < Math.min(W, Math.ceil(grey.x + grey.w)); x++) {
+        const i = 4 * (y * W + x);
+        if (Math.abs(d[i] - d[i + 1]) > 3 || Math.abs(d[i + 1] - d[i + 2]) > 3) out.nonGrey++;
+      }
+    }
+    return out;
+  }, [b64, bands, grey, radius]);
+}
+// Rendered proof of the back: bright pixels in the right and left bands, and non-grey pixels inside the panel (inset 2px).
+async function backShot(page, g) {
+  const clip = { x: g.back.l, y: g.back.t, width: g.back.w, height: g.back.h };
+  const grey = { x: g.panel.l - g.back.l + 2, y: g.panel.t - g.back.t + 2, w: g.panel.w - 4, h: g.panel.h - 4 };
+  return shotStats(page, clip, [['right', -24, -4], ['left', 4, 12]], grey);
+}
+// With the back showing an image puzzle: layout, grey pixels, luma against the oracle at 30 points and the last cell, and no seams.
+async function expectBackImage(page, fx, o, r, c, tag, say, dprWant = 1) {
+  const g = await backGeom(page);
+  ok(g.showsPicture && !g.showsGrid, tag + ': picture not shown, or grid still shown');
+  expectBackLayout(g, r, c, tag);
+  const fracs = [];
+  for (const fy of [0.1, 0.3, 0.5, 0.7, 0.9]) for (const fxx of [0.1, 0.3, 0.5, 0.7, 0.9, 0.97]) fracs.push([fxx, fy]);
+  fracs.push([(c - 0.5) / c, (r - 0.5) / r]);
+  const p = await backPixels(page, r, c, fracs);
+  eq(p.dpr, dprWant, tag + ' devicePixelRatio');
+  eq([p.W, p.H], [Math.round(p.cssW * p.dpr), Math.round(p.cssH * p.dpr)], tag + ' backing store against css size');
+  ok(Math.abs(p.cssW / c - p.cssH / r) <= 1, `${tag}: canvas ${p.cssW}x${p.cssH} not at ${c}:${r}`);
+  eq(p.nonGrey, 0, tag + ' non-grey pixels');
+  let worst = 0;
+  for (const s of p.samples) {
+    const want = lumaOracle(fx, o, s.fx, s.fy);
+    const err = Math.abs(s.rgb[0] - want);
+    worst = Math.max(worst, err);
+    ok(err <= 3, `${tag}: sample (${s.fx.toFixed(3)}, ${s.fy.toFixed(3)}) is ${s.rgb} but the oracle luma is ${want.toFixed(1)}`);
+  }
+  ok(p.stepX <= 3 && p.stepY <= 3, `${tag}: seam, largest step across a cut ${p.stepX}/${p.stepY}`);
+  say(`${tag}: canvas ${p.cssW}x${p.cssH} css, ${p.W}x${p.H} store at dpr ${p.dpr}; 0 non-grey; ${p.samples.length} samples, worst luma error ${worst.toFixed(2)}; cut steps ${p.stepX}/${p.stepY}`);
+}
+
 async function main() {
   const browser = await chromium.launch({ channel: 'chrome', headless: true });
   const tmpVideo = fs.mkdtempSync(path.join(os.tmpdir(), 'shuffle-video-'));
@@ -783,7 +918,7 @@ async function main() {
           msg.hidden = false;
           const msgBox = rc(msg);
           msg.hidden = was;
-          return { fr, well: rc(document.querySelector('.well')), tiles, emptyBg: bg('.tile.empty'), tileBg: bg('.tile:not(.empty)'), emptyColour: bgColour('.tile.empty'), tileColour: bgColour('.tile:not(.empty)'), board: rc(document.getElementById('board')), sw: document.documentElement.scrollWidth, cw: document.documentElement.clientWidth, ih: window.innerHeight, actions: rc(document.querySelector('.actions')), status: rc(document.querySelector('.status')), shuffle: rc(document.getElementById('shuffle')), msgBox };
+          return { fr, well: rc(document.querySelector('.well')), tiles, emptyBg: bg('.tile.empty'), tileBg: bg('.tile:not(.empty)'), emptyColour: bgColour('.tile.empty'), tileColour: bgColour('.tile:not(.empty)'), board: rc(document.getElementById('board')), sw: document.documentElement.scrollWidth, cw: document.documentElement.clientWidth, ih: window.innerHeight, actions: rc(document.querySelector('.actions')), status: rc(document.querySelector('.status')), shuffle: rc(document.getElementById('shuffle')), flip: rc(document.getElementById('flip')), msgBox };
         });
         const tag = `${w}x${h} ${r}x${c}`;
         say(`${tag}: tile ${m.tiles[0].w.toFixed(1)}px, frame ${m.fr.l.toFixed(1)}..${m.fr.r.toFixed(1)}, cw ${m.cw}, msgBottom ${m.msgBox.b.toFixed(1)}`);
@@ -794,7 +929,7 @@ async function main() {
         ok(m.emptyBg !== m.tileBg, tag + ': empty bg equals tile bg');
         ok(m.emptyColour !== m.tileColour, tag + ': empty background-color equals tile background-color (#2 assertion)');
         ok(Math.abs(m.fr.l - (m.cw - m.fr.r)) <= 2, `${tag}: frame margins ${m.fr.l} vs ${m.cw - m.fr.r}`);
-        for (const [k, q] of [['.actions', m.actions], ['.status', m.status], ['#shuffle', m.shuffle], ['#message', m.msgBox]]) ok(q.l >= 0 && q.r <= m.cw, `${tag}: ${k} outside [0, clientWidth]`);
+        for (const [k, q] of [['.actions', m.actions], ['.status', m.status], ['#shuffle', m.shuffle], ['#flip', m.flip], ['#message', m.msgBox]]) ok(q.l >= 0 && q.r <= m.cw, `${tag}: ${k} outside [0, clientWidth]`);
         ok(m.msgBox.b <= m.ih, `${tag}: message bottom ${m.msgBox.b} beyond viewport ${m.ih}`);
         ok(m.tiles.every((q) => q.l >= 0 && q.r <= m.cw), tag + ': tile outside [0, clientWidth]');
         ok(m.tiles.every((q) => inside(q, m.well)), tag + ': tile outside well');
@@ -849,7 +984,11 @@ async function main() {
         nonVacuous(nwC, tag + ' #new', say);
         ok(nwC.every((x) => maxc(x) <= 64), tag + ': #new not dark plastic');
         ok(rgbOf(await style(page, '#new', 'color')).every((v) => v >= 230), tag + ': #new text not white');
-        for (const sel of ['#moves', '#timer', '#shuffle', '#new']) ok(!overlap(await rect(page, sel), fr), `${tag}: ${sel} intersects frame`);
+        const flC = await colours(page, '#flip');
+        nonVacuous(flC, tag + ' #flip', say);
+        ok(flC.every((x) => maxc(x) <= 64), tag + ': #flip not dark plastic');
+        ok(rgbOf(await style(page, '#flip', 'color')).every((v) => v >= 230), tag + ': #flip text not white');
+        for (const sel of ['#moves', '#timer', '#shuffle', '#new', '#flip']) ok(!overlap(await rect(page, sel), fr), `${tag}: ${sel} intersects frame`);
         await shot(page, dir, `${r}x${c}-${w}.png`);
       }
     }
@@ -916,7 +1055,7 @@ async function main() {
 
   await run('code-shape', async ({ say }) => {
     const html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
-    for (const f of ['render', 'move', 'setSize', 'shuffle', 'isSolvable', 'isSolved', 'checkWin', 'openNew', 'startNew', 'onDecoded', 'onRejected', 'cropRect', 'openCrop', 'drawCrop', 'moveCrop', 'cutImage', 'cropDone', 'loadPresets', 'parseListing', 'onListed', 'gridRange', 'applyRange', 'loadSettings']) {
+    for (const f of ['render', 'move', 'setSize', 'shuffle', 'isSolvable', 'isSolved', 'checkWin', 'openNew', 'startNew', 'onDecoded', 'onRejected', 'cropRect', 'openCrop', 'drawCrop', 'moveCrop', 'cutImage', 'cropDone', 'loadPresets', 'parseListing', 'onListed', 'gridRange', 'applyRange', 'loadSettings', 'flip', 'drawBack', 'greyscale']) {
       const re = new RegExp('//[^\\n]*\\r?\\n\\s*function ' + f + '\\b');
       ok(re.test(html), `function ${f} missing or has no comment above`);
       say(`function ${f}: present with comment`);
@@ -1754,7 +1893,7 @@ async function main() {
     S.c = await serve(path.join(tmpRoot, 'C'), async (o) => (await httpGet(o + '/images/')).body.includes('no listing'));
     S.d = await serve(path.join(tmpRoot, 'D'), async (o) => { const r = await httpGet(o + '/images/'); return r.status === 200 && !r.body.includes('<li>'); });
     cn = await canned(FIX['landscape.png'].buffer);
-    for (const [k, body] of [['s-edit', S_EDIT], ['s-missing', null], ['s-bad', S_BAD], ['s-values', S_VALUES], ['s-near', S_NEAR]]) {
+    for (const [k, body] of [['s-edit', S_EDIT], ['s-missing', null], ['s-bad', S_BAD], ['s-values', S_VALUES], ['s-near', S_NEAR], ['s-flip', S_FLIP]]) {
       S[k] = await serve(settingsRoot(k, body), settingsProbe(body));
     }
   } catch (e) {
@@ -2453,6 +2592,474 @@ async function main() {
     say('README Settings section: after Run, json block equals settings.json, keywords present');
   }, { shoot: false });
 
+  // ---- #15 flip the board. Each check starts with reduced motion (instant flips) unless it is about motion. ----
+  const reduce = (page) => page.emulateMedia({ reducedMotion: 'reduce' });
+  const centreOf = async (page, sel) => { const q = await rect(page, sel); return { x: q.l + q.w / 2, y: q.t + q.h / 2 }; };
+  const snap = async (page) => ({ board: await board(page), html: await page.$eval('#board', (e) => e.outerHTML), moves: await movesOf(page), msgHidden: await page.$eval('#message', (e) => e.hidden) });
+  const pressedOf = (page) => page.getAttribute('#flip', 'aria-pressed');
+  const BACK_SHOTS = new Set(['3x3', '10x10', '3x10', '10x3', '12x12', '3x12']);
+  // Own-file flow with an arbitrary file name: New, size, file, Start, Done.
+  const ownFileUI = async (pg, r, c, fileName) => {
+    await pg.click('#new');
+    await pg.selectOption('#rows', String(r));
+    await pg.selectOption('#cols', String(c));
+    await pg.setInputFiles('#image-file', { name: fileName, mimeType: 'image/png', buffer: FIX['landscape.png'].buffer });
+    await pg.click('#new-start');
+    await pg.waitForSelector('#crop-dialog[open]');
+    await cropDoneUI(pg);
+  };
+
+  // flip-control: AC1, owner 3. The Flip button sits with New and Shuffle, visibly apart from them.
+  await run('flip-control', async ({ page, dir, say }) => {
+    await reduce(page);
+    const f = await page.$eval('#flip', (e) => {
+      const p = e.previousElementSibling;
+      return { tag: e.tagName, type: e.getAttribute('type'), text: e.textContent, pressed: e.getAttribute('aria-pressed'), inActions: !!e.closest('.actions'), prevIsSep: !!(p && p.classList.contains('sep')), sepAfterShuffle: !!(p && p.previousElementSibling && p.previousElementSibling.id === 'shuffle') };
+    });
+    eq(f, { tag: 'BUTTON', type: 'button', text: 'Flip', pressed: 'false', inActions: true, prevIsSep: true, sepAfterShuffle: true }, 'flip button');
+    for (const [w, h] of VIEWS) {
+      await page.setViewportSize({ width: w, height: h });
+      for (const [r, c] of [[3, 3], [10, 10], [3, 10]]) {
+        await setSizeUI(page, r, c);
+        const tag = `${w}x${h} ${r}x${c}`;
+        const nw = await rect(page, '#new'), sh = await rect(page, '#shuffle'), sp = await rect(page, '.actions .sep'), fl = await rect(page, '#flip'), ac = await rect(page, '.actions'), fr = await rect(page, '.frame');
+        const cw = await page.evaluate(() => document.documentElement.clientWidth);
+        say(`${tag}: New-Shuffle gap ${(sh.l - nw.r).toFixed(1)}, Shuffle-Flip gap ${(fl.l - sh.r).toFixed(1)}, actions ${ac.l.toFixed(1)}..${ac.r.toFixed(1)} of ${cw}`);
+        ok(fl.l - sh.r >= 2 * (sh.l - nw.r), `${tag}: Flip gap ${fl.l - sh.r} is under twice the New-Shuffle gap ${sh.l - nw.r}`);
+        ok(sp.l >= sh.r - 0.5 && sp.r <= fl.l + 0.5, tag + ': separator not between Shuffle and Flip');
+        const fC = await colours(page, '#flip');
+        nonVacuous(fC, tag + ' #flip', say);
+        ok(fC.every((x) => maxc(x) <= 64), tag + ': #flip not dark plastic');
+        ok(rgbOf(await style(page, '#flip', 'color')).every((v) => v >= 230), tag + ': #flip text not white');
+        ok(ac.l >= 0 && ac.r <= cw, tag + ': .actions outside [0, clientWidth]');
+        ok(fl.l >= 0 && fl.r <= cw, tag + ': #flip outside [0, clientWidth]');
+        ok(!overlap(fl, fr), tag + ': #flip intersects the frame');
+      }
+      await page.locator('.actions').screenshot({ path: path.join(dir, `actions-${w}.png`) });
+    }
+  });
+
+  // flip-front-unchanged: AC1, owner 1, 2, 4. Flipping changes nothing about the game, and the timer keeps running. Normal motion.
+  await run('flip-front-unchanged', async ({ page, say }) => {
+    // (a) numbers 3x3, timer running.
+    await click(page, 7);
+    eq(await movesOf(page), 1, '(a) moves after one slide');
+    const before = await snap(page);
+    await flipUI(page);
+    eq(await pressedOf(page), 'true', '(a) aria-pressed on the back');
+    const t0 = await timerOf(page);
+    await page.waitForFunction((t) => Number(document.getElementById('timer').textContent.match(/(\d+)s/)[1]) >= t, t0 + 2);
+    const tBack = await timerOf(page);
+    ok(tBack >= t0 + 2, `(a) timer did not keep running on the back (${t0} -> ${tBack})`);
+    eq(await movesOf(page), 1, '(a) moves on the back');
+    const text = (await page.evaluate(() => document.body.innerText)).toLowerCase();
+    for (const w of ['peek', 'penalty', 'cheat']) ok(!text.includes(w), `(a) page text mentions "${w}"`);
+    await flipUI(page);
+    eq(await snap(page), before, '(a) board, markup, moves and message after flipping back');
+    eq(await pressedOf(page), 'false', '(a) aria-pressed on the front');
+    ok((await timerOf(page)) >= tBack, '(a) timer went backwards');
+    say(`(a) numbers: one move, flipped for the timer to go ${t0} -> ${tBack}; board, markup, moves unchanged after flipping back; no peek/penalty/cheat text`);
+    // (b) a won board does not flip by itself, and the back and timer behave.
+    await setSizeUI(page, 3, 3);
+    await click(page, 7);
+    await click(page, 8);
+    ok(await page.isVisible('#message'), '(b) message not visible after the solve');
+    const T = await timerOf(page);
+    ok(!(await page.$eval('#plate', (e) => e.classList.contains('flipped'))), '(b) the board flipped by itself on the solve');
+    eq(await pressedOf(page), 'false', '(b) aria-pressed after the solve');
+    await flipUI(page);
+    ok(await page.isVisible('#message'), '(b) message hidden on the back');
+    const g = await backGeom(page);
+    eq(g.cells, solvedBoard(9), '(b) the back grid');
+    await sleep(1200);
+    eq(await timerOf(page), T, '(b) frozen timer moved on the back');
+    await flipUI(page);
+    eq(await board(page), SOLVED, '(b) board after flipping back');
+    ok(await page.isVisible('#message'), '(b) message after flipping back');
+    eq(await movesOf(page), 2, '(b) moves');
+    say(`(b) won board: no automatic flip, message stays, back grid solved, timer stayed ${T}, moves 2`);
+    // (c) image 3x3.
+    await newImageUI(page, 3, 3, 'landscape.png');
+    await cropDoneUI(page);
+    await page.click('#shuffle');
+    const lab = await imgBoard(page), smp = await pieceSample(page);
+    await flipUI(page);
+    await flipUI(page);
+    eq(await imgBoard(page), lab, '(c) image labels');
+    eq(await pieceSample(page), smp, '(c) piece samples');
+    eq(await movesOf(page), 0, '(c) moves');
+    say('(c) image 3x3: labels and piece pixels unchanged after two flips, moves 0');
+  }, { video: true });
+
+  // flip-no-moves: AC4. While the back shows, the board cannot be played and New and Shuffle are off.
+  await run('flip-no-moves', async ({ page, say }) => {
+    await reduce(page);
+    // (a) numbers 3x3 from solved: the tiles next to the gap are 5 and 7.
+    const c5 = await centreOf(page, '#board .tile[data-index="5"]'), c7 = await centreOf(page, '#board .tile[data-index="7"]');
+    await flipUI(page);
+    ok(await page.$eval('#frame', (e) => e.inert), '(a) #frame not inert on the back');
+    for (const c of [c5, c7]) {
+      ok(await page.evaluate(([x, y]) => !!document.elementFromPoint(x, y).closest('#back'), [c.x, c.y]), '(a) the back is not what lies over the front tile');
+      await page.mouse.click(c.x, c.y);
+    }
+    eq(await movesOf(page), 0, '(a) moves after clicking where tiles 5 and 7 were');
+    eq(await board(page), SOLVED, '(a) board after those clicks');
+    ok(await page.$eval('#new', (e) => e.disabled) && await page.$eval('#shuffle', (e) => e.disabled), '(a) New and Shuffle not disabled on the back');
+    const forbidden = [];
+    let reachedFlip = false;
+    await page.evaluate(() => { if (document.activeElement) document.activeElement.blur(); });
+    for (let k = 0; k < 15; k++) {
+      await page.keyboard.press('Tab');
+      const a = await page.evaluate(() => ({ id: document.activeElement.id, tile: document.activeElement.classList.contains('tile') }));
+      if (a.tile || a.id === 'new' || a.id === 'shuffle') forbidden.push(a);
+      if (a.id === 'flip') reachedFlip = true;
+    }
+    eq(forbidden, [], '(a) Tab reached a tile, New or Shuffle');
+    ok(reachedFlip, '(a) Tab never reached Flip');
+    await page.focus('#flip');
+    await page.keyboard.press('Enter');
+    await page.waitForFunction(() => document.getElementById('flip').getAttribute('aria-pressed') === 'false' && !document.getElementById('plate').classList.contains('flipped') && document.getElementById('plate').getAnimations().length === 0);
+    ok(!(await page.$eval('#frame', (e) => e.inert)), '(a) #frame still inert after flipping back');
+    ok(!(await page.$eval('#new', (e) => e.disabled)) && !(await page.$eval('#shuffle', (e) => e.disabled)), '(a) New or Shuffle still disabled on the front');
+    await click(page, 7);
+    eq(await movesOf(page), 1, '(a) the front is live again');
+    say('(a) numbers: frame inert, clicks over the front tiles ignored, New/Shuffle disabled, 15 Tabs never left Flip, Enter flipped back, a click then moved');
+    // (b) a click at once after Flip, while the plate is still turning.
+    await withPage(PAGE_URL, async (pg) => {
+      const c = await centreOf(pg, '#board .tile[data-index="7"]');
+      await pg.click('#flip');
+      await pg.mouse.click(c.x, c.y);
+      eq(await movesOf(pg), 0, '(b) moves after a click during the turn');
+      await pg.waitForFunction(() => document.getElementById('plate').getAnimations().length === 0);
+      eq(await board(pg), SOLVED, '(b) board after the turn');
+    });
+    say('(b) normal motion: a click on tile 7 during the turn did nothing');
+    // (c) image 3x3.
+    await newImageUI(page, 3, 3, 'landscape.png');
+    await cropDoneUI(page);
+    const lab = await imgBoard(page);
+    const i5 = await centreOf(page, '#board .tile[data-index="5"]'), i7 = await centreOf(page, '#board .tile[data-index="7"]');
+    await flipUI(page);
+    for (const c of [i5, i7]) {
+      ok(await page.evaluate(([x, y]) => !!document.elementFromPoint(x, y).closest('#back'), [c.x, c.y]), '(c) the back is not what lies over the front tile');
+      await page.mouse.click(c.x, c.y);
+    }
+    eq(await movesOf(page), 0, '(c) moves');
+    eq(await imgBoard(page), lab, '(c) image labels');
+    say('(c) image: clicks over the front tiles ignored, labels unchanged');
+  });
+
+  // back-numbers: AC2, AC6. The back of a number puzzle is the solved grid at every size, phone and desktop.
+  await run('back-numbers', async ({ page, dir, say }) => {
+    await reduce(page);
+    const sweep = async (pg, w, h, sizes, tagp) => {
+      await pg.setViewportSize({ width: w, height: h });
+      for (const [r, c] of sizes) {
+        await setSizeUI(pg, r, c);
+        await flipUI(pg);
+        const g = await backGeom(pg);
+        const tag = `${tagp}${w}x${h} ${r}x${c}`;
+        ok(g.showsGrid && !g.showsPicture, tag + ': grid not shown or picture shown');
+        eq(g.cells, solvedBoard(r * c), tag + ' cells');
+        eq(g.empties, 1, tag + ' empty cells');
+        ok(g.emptyLast, tag + ': the empty cell is not last');
+        eq(g.capText, `Shuffle ${r}${TIMES}${c}`, tag + ' caption');
+        expectBackLayout(g, r, c, tag);
+        if (BACK_SHOTS.has(`${r}x${c}`)) await shot(pg, dir, `${r}x${c}-${w}.png`);
+        await flipUI(pg);
+      }
+      say(`${tagp}${w}x${h}: ${sizes.length} sizes, grid, caption and layout hold`);
+    };
+    await sweep(page, 360, 740, pairs(3, 10), 'file ');
+    await sweep(page, 1280, 800, pairs(3, 10), 'file ');
+    need();
+    await withPage(S['s-flip'].origin + '/', async (pg) => {
+      await reduce(pg);
+      await ready(pg);
+      eq(await optionsOf(pg), { rows: seq(3, 12), cols: seq(3, 12) }, 's-flip options');
+      await sweep(pg, 360, 740, pairs(3, 12), 'http ');
+      await sweep(pg, 1280, 800, [[12, 12], [3, 12], [12, 3], [4, 12]], 'http ');
+    });
+  });
+
+  // back-image: AC2, owner 5. The back of an image puzzle is the whole cropped picture in greyscale, with no seams and no missing piece.
+  await run('back-image', async ({ page, dir, say }) => {
+    await reduce(page);
+    const imageCase = async (pg, fixName, r, c, zoom) => {
+      const fx = FIX[fixName];
+      const tag = `${fixName.replace('.png', '')} ${r}x${c}${zoom !== 1 ? ' zoom ' + zoom : ''}`;
+      await newImageUI(pg, r, c, fixName);
+      if (zoom !== 1) await setZoom(pg, zoom);
+      await cropDoneUI(pg);
+      await flipUI(pg);
+      const o = cropOracle(fx.W, fx.H, r, c, zoom, fx.W / 2, fx.H / 2);
+      await expectBackImage(pg, fx, o, r, c, tag, say);
+      await shot(pg, dir, `${fixName.replace('.png', '')}-${r}x${c}${zoom !== 1 ? 'z' + zoom : ''}-1280.png`);
+      await flipUI(pg);
+    };
+    for (const [r, c] of [[3, 3], [4, 6], [6, 3], [10, 10], [3, 10], [10, 3]]) await imageCase(page, 'landscape.png', r, c, 1);
+    for (const [r, c] of [[3, 3], [10, 3]]) await imageCase(page, 'portrait.png', r, c, 1);
+    await imageCase(page, 'landscape.png', 4, 4, 2);
+    need();
+    await withPage(S['s-flip'].origin + '/', async (pg) => {
+      await reduce(pg);
+      await ready(pg);
+      for (const [r, c] of [[12, 12], [3, 12], [12, 3]]) await imageCase(pg, 'landscape.png', r, c, 1);
+    });
+    await withPage(PAGE_URL, async (pg) => {
+      await reduce(pg);
+      const fx = FIX['landscape.png'];
+      await newImageUI(pg, 3, 3, 'landscape.png');
+      await cropDoneUI(pg);
+      await flipUI(pg);
+      await expectBackImage(pg, fx, cropOracle(fx.W, fx.H, 3, 3, 1, fx.W / 2, fx.H / 2), 3, 3, 'dpr2 landscape 3x3', say, 2);
+    }, { deviceScaleFactor: 2 });
+  });
+
+  // back-caption: AC2. The caption is the preset name, the own file's name without extension, or Shuffle R x C.
+  await run('back-caption', async ({ page, dir, say }) => {
+    need();
+    await reduce(page);
+    const land = FIX['landscape.png'];
+    const NAME_L = 'Grad – Landscape ’1’';
+    // (a) preset from root A.
+    await newPresetUI(page, 3, 3, NAME_L);
+    await cropDoneUI(page);
+    await flipUI(page);
+    eq((await backGeom(page)).capText, NAME_L, '(a) caption');
+    await expectBackImage(page, land, cropOracle(land.W, land.H, 3, 3, 1, 300, 200), 3, 3, '(a) preset', say);
+    await flipUI(page);
+    // (b) a real preset, taken from the dialog.
+    await page.goto(S.real.origin + '/');
+    await ready(page);
+    await page.click('#new');
+    await presetRowVisible(page);
+    const first = (await presetOptions(page))[0];
+    ok(first, '(b) no preset in the dialog');
+    await page.selectOption('#rows', '4');
+    await page.selectOption('#cols', '4');
+    await page.selectOption('#preset', { label: first.text });
+    await page.click('#new-start');
+    await page.waitForSelector('#crop-dialog[open]');
+    await cropDoneUI(page);
+    await flipUI(page);
+    eq((await backGeom(page)).capText, first.text, '(b) caption');
+    ok(realFiles.map(stemOf).includes(first.text), `(b) "${first.text}" is not the stem of a file in images/`);
+    await shot(page, dir, 'real-preset.png');
+    say(`(b) real preset "${first.text}" at 4x4: caption is its listed name, a stem of images/`);
+    // (c) own file, then (d) a re-crop of the current image.
+    await page.goto(PAGE_URL);
+    await newImageUI(page, 3, 3, 'landscape.png');
+    await cropDoneUI(page);
+    await flipUI(page);
+    eq((await backGeom(page)).capText, 'landscape', '(c) own file caption');
+    await flipUI(page);
+    await page.click('#new');
+    await page.selectOption('#rows', '3');
+    await page.selectOption('#cols', '4');
+    await page.click('#new-start');
+    await page.waitForSelector('#crop-dialog[open]');
+    await cropDoneUI(page);
+    await flipUI(page);
+    eq((await backGeom(page)).capText, 'landscape', '(d) caption after a re-crop');
+    await expectBackImage(page, land, cropOracle(land.W, land.H, 3, 4, 1, 300, 200), 3, 4, '(d) re-crop 3x4', say);
+    await flipUI(page);
+    await ownFileUI(page, 3, 3, '.png');
+    await flipUI(page);
+    eq((await backGeom(page)).capText, 'Your picture', '(c) empty-stem caption');
+    await flipUI(page);
+    say('(c) own file landscape.png -> "landscape"; ".png" -> "Your picture"; (d) re-crop 3x4 keeps "landscape" and shows the 3x4 crop');
+    // (e) numbers after an image.
+    await setSizeUI(page, 5, 6);
+    await flipUI(page);
+    const ge = await backGeom(page);
+    eq(ge.capText, `Shuffle 5${TIMES}6`, '(e) caption');
+    ok(ge.showsGrid && !ge.showsPicture, '(e) grid not shown');
+    await flipUI(page);
+    say('(e) image then numbers 5x6: caption "Shuffle 5×6", grid shown');
+    // (f) long names at 360x740 over s-flip.
+    await withPage(S['s-flip'].origin + '/', async (pg) => {
+      await pg.setViewportSize({ width: 360, height: 740 });
+      await reduce(pg);
+      await ready(pg);
+      const back = async (name, tag) => { await ownFileUI(pg, 3, 12, name); await flipUI(pg); const g = await backGeom(pg); expectBackLayout(g, 3, 12, tag); await flipUI(pg); return g; };
+      const gj = await back('Jacques-Louis David - Napoleon Crossing the Alps.png', '(f) Jacques-Louis');
+      eq(gj.capText, 'Jacques-Louis David - Napoleon Crossing the Alps', '(f) long caption');
+      const gs = await back('landscape.png', '(f) short');
+      const long = 'A'.repeat(236);
+      const gl = await back(long + '.png', '(f) 240 characters');
+      eq(gl.capText, long, '(f) 240-character caption text');
+      ok(gl.caption.h <= 2 * gs.caption.h + 1, `(f) long caption ${gl.caption.h}px tall, more than two lines of ${gs.caption.h}px`);
+      ok(gl.panel.w >= 0.8 * gs.panel.w, `(f) panel shrank from ${gs.panel.w} to ${gl.panel.w}`);
+      await flipUI(pg);
+      await shot(pg, dir, 'long-name-360.png');
+      say(`(f) 3x12 at 360: Jacques-Louis caption ${gj.caption.h}px tall inside the back; 240 characters ${gl.caption.h}px (one line ${gs.caption.h}px), panel ${gl.panel.w} against ${gs.panel.w}`);
+    });
+    // (g) race: the Picture select changes while the preset is still loading.
+    await page.goto(S.a.origin + '/');
+    await reduce(page);
+    let held = false, release;
+    const gate = new Promise((res) => { release = res; });
+    await page.route(/Grad/, async (route) => { held = true; await gate; await route.continue(); });
+    await page.click('#new');
+    await presetRowVisible(page);
+    await page.selectOption('#rows', '3');
+    await page.selectOption('#cols', '3');
+    await page.selectOption('#preset', { label: NAME_L });
+    await page.click('#new-start');
+    for (let k = 0; k < 100 && !held; k++) await sleep(50);
+    ok(held, '(g) the preset request was never held');
+    await page.selectOption('#preset', { label: 'portrait' });
+    ok(!(await isOpen(page, 'crop-dialog')), '(g) the crop dialog opened before the release');
+    release();
+    await page.waitForSelector('#crop-dialog[open]');
+    await cropDoneUI(page);
+    await page.unroute(/Grad/);
+    await flipUI(page);
+    eq((await backGeom(page)).capText, NAME_L, '(g) caption after the select changed');
+    say('(g) the Picture select changed while the preset loaded: caption is still the preset that was started');
+  }, { url: U(S.a) });
+
+  // flip-motion: AC5. A 0.6s rotation, instant under reduced motion.
+  await run('flip-motion', async ({ page, dir, say }) => {
+    const m11 = () => page.evaluate(() => new DOMMatrix(getComputedStyle(document.getElementById('plate')).transform).m11);
+    // The click and the first reading are in one page task, so a slow machine cannot let the transition finish first.
+    const info = await page.evaluate(() => {
+      const plate = document.getElementById('plate');
+      document.getElementById('flip').click();
+      const a = plate.getAnimations();
+      const out = { n: a.length, kinds: a.map((x) => x.constructor.name), props: a.map((x) => x.transitionProperty), dur: a.map((x) => x.effect.getComputedTiming().duration), state: a.map((x) => x.playState) };
+      a.forEach((x) => { x.pause(); x.currentTime = 200; });
+      return out;
+    });
+    eq(info, { n: 1, kinds: ['CSSTransition'], props: ['transform'], dur: [600], state: ['running'] }, 'the flip animation');
+    const mid = await m11();
+    ok(mid > -0.95 && mid < 0.95 && Math.abs(mid) > 0.05, `m11 ${mid} at 200ms is not partway through the rotation`);
+    await shot(page, dir, 'mid-flip.png');
+    await page.evaluate(() => document.getElementById('plate').getAnimations().forEach((x) => x.play()));
+    await page.waitForFunction(() => document.getElementById('plate').getAnimations().length === 0);
+    const end = await m11();
+    ok(Math.abs(end + 1) < 1e-3, `m11 ${end} after the flip, expected -1`);
+    const g = await backGeom(page);
+    const s = await backShot(page, g);
+    ok(s.bright.right > 50, `right band has ${s.bright.right} bright pixels, the maker's text is not showing`);
+    eq(s.nonGrey, 0, 'non-grey pixels in the panel of the rotated plate');
+    await flipUI(page);
+    const back1 = await m11();
+    ok(Math.abs(back1 - 1) < 1e-3, `m11 ${back1} after flipping back, expected 1`);
+    say(`one CSSTransition on transform, 600ms; m11 ${mid.toFixed(3)} at 300ms, ${end.toFixed(4)} at the end, ${back1.toFixed(4)} flipped back; right band ${s.bright.right} bright, 0 non-grey in the panel`);
+    await withPage(PAGE_URL, async (pg) => {
+      await pg.click('#flip');
+      const a = await pg.evaluate(() => ({ n: document.getElementById('plate').getAnimations().length, m: new DOMMatrix(getComputedStyle(document.getElementById('plate')).transform).m11 }));
+      eq(a.n, 0, 'reduced motion: animations after the flip');
+      ok(Math.abs(a.m + 1) < 1e-3, `reduced motion: m11 ${a.m} after the flip, expected -1`);
+      await pg.click('#flip');
+      const b = await pg.evaluate(() => ({ n: document.getElementById('plate').getAnimations().length, m: new DOMMatrix(getComputedStyle(document.getElementById('plate')).transform).m11 }));
+      eq(b.n, 0, 'reduced motion: animations after flipping back');
+      ok(Math.abs(b.m - 1) < 1e-3, `reduced motion: m11 ${b.m} after flipping back, expected 1`);
+    }, { reducedMotion: 'reduce' });
+    say('reduced motion: no animation, m11 -1 then 1 at once');
+  }, { video: true });
+
+  // back-look: AC3. The back is a black plate printed in white, with maker's text up the right edge, and the picture area is pure grey.
+  await run('back-look', async ({ page, dir, say }) => {
+    await reduce(page);
+    for (const [w, h] of VIEWS) {
+      await page.setViewportSize({ width: w, height: h });
+      const kinds = [...[[3, 3], [6, 6], [10, 10], [3, 10], [10, 3]].map(([r, c]) => ({ kind: 'numbers', r, c })), { kind: 'image', r: 3, c: 3 }];
+      for (const k of kinds) {
+        if (k.kind === 'numbers') await setSizeUI(page, k.r, k.c); else { await newImageUI(page, k.r, k.c, 'landscape.png'); await cropDoneUI(page); }
+        await flipUI(page);
+        const tag = `${k.kind} ${k.r}x${k.c} at ${w}x${h}`;
+        const bC = await colours(page, '#back');
+        nonVacuous(bC, tag + ' #back', say);
+        ok(bC.every((x) => maxc(x) <= 48), tag + ': back not black');
+        const rad = await style(page, '#back', 'borderTopLeftRadius');
+        eq(rad, await style(page, '.frame', 'borderTopLeftRadius'), tag + ' back radius against frame');
+        ok(parseFloat(rad) >= 8, tag + ': back radius < 8px');
+        ok((await style(page, '#back', 'boxShadow')).includes('inset'), tag + ': back has no inset highlight');
+        ok(rgbOf(await style(page, '#back-caption', 'color')).every((v) => v >= 230), tag + ': caption colour below 230');
+        ok(parseFloat(await style(page, '#back-caption', 'fontSize')) < parseFloat(await style(page, 'h1', 'fontSize')), tag + ': caption font not smaller than h1');
+        eq((await page.textContent('.back-maker')).trim(), 'Made by SHUFFLE', tag + ' maker text');
+        ok(parseFloat(await style(page, '.back-maker', 'fontSize')) <= 10, tag + ': maker font over 10px');
+        ok(rgbOf(await style(page, '.back-maker', 'color')).every((v) => v >= 230), tag + ': maker colour below 230');
+        eq(await style(page, '.back-maker', 'writingMode'), 'vertical-rl', tag + ' maker writing-mode');
+        const g = await backGeom(page);
+        ok(g.maker.l >= g.back.r - 32 - 0.5 && g.maker.r <= g.back.r + 0.5, `${tag}: maker box ${JSON.stringify(g.maker)} not in the right 32px of the back`);
+        ok(g.mark.l >= g.back.l + g.back.w / 2 && g.mark.r <= g.back.r + 0.5 && g.mark.t >= g.back.t - 0.5 && g.mark.b <= g.back.t + g.back.h / 2, `${tag}: mark ${JSON.stringify(g.mark)} not in the top-right quarter`);
+        const greys = await page.evaluate(() => {
+          const out = {};
+          for (const [key, sel] of [['grid', '#back-grid'], ['cell', '.back-cell'], ['empty', '.back-cell.empty']]) {
+            const e = document.querySelector(sel);
+            if (!e) { out[key] = null; continue; }
+            const cs = getComputedStyle(e);
+            out[key] = [cs.backgroundColor, cs.color];
+          }
+          return out;
+        });
+        ok(greys.grid, tag + ': #back-grid missing');
+        if (k.kind === 'numbers') ok(greys.cell && greys.empty, tag + ': back cells missing');
+        for (const [key, pair] of Object.entries(greys)) {
+          if (!pair) continue;
+          for (const cstr of key === 'grid' ? [pair[0]] : pair) { const [R, G, B] = rgbOf(cstr); ok(R === G && G === B, `${tag}: ${key} colour ${cstr} is not pure grey`); }
+        }
+        const s = await backShot(page, g);
+        ok(s.bright.right > 50, `${tag}: right band has ${s.bright.right} bright pixels, the maker's text is not showing`);
+        ok(s.bright.left < 20, `${tag}: left band has ${s.bright.left} bright pixels, the back looks mirrored`);
+        eq(s.nonGrey, 0, tag + ' non-grey pixels in the panel');
+        say(`${tag}: black plate, maker right band ${s.bright.right} bright, left band ${s.bright.left}, panel 0 non-grey`);
+        await shot(page, dir, `${k.kind}-${k.r}x${k.c}-${w}.png`);
+        await flipUI(page);
+      }
+    }
+  });
+
+  // flip-resize: AC6. The back follows the viewport while it shows.
+  await run('flip-resize', async ({ page, say }) => {
+    await reduce(page);
+    await setSizeUI(page, 10, 10);
+    await flipUI(page);
+    const g0 = await backGeom(page);
+    expectBackLayout(g0, 10, 10, '1280x800');
+    await page.setViewportSize({ width: 360, height: 740 });
+    await page.waitForFunction((w) => document.getElementById('back-grid').getBoundingClientRect().width !== w, g0.panel.w);
+    const g1 = await backGeom(page);
+    expectBackLayout(g1, 10, 10, '360x740');
+    ok(g1.panel.w !== g0.panel.w, 'panel width did not change at 360x740');
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.waitForFunction((w) => document.getElementById('back-grid').getBoundingClientRect().width !== w, g1.panel.w);
+    expectBackLayout(await backGeom(page), 10, 10, 'back at 1280x800');
+    say(`10x10 panel ${g0.panel.w}px at 1280, ${g1.panel.w}px at 360, layout holds at each`);
+  });
+
+  // flip-late-settings: AC1, I7. Settings that arrive late move the board; the back follows.
+  if (cn) {
+    cn.count = 0;
+    cn.listing = () => ({ body: listingPage([]) });
+    cn.settings = () => ({ delay: 1500, body: '{"grid":{"rows":{"min":4,"max":8}}}' });
+  }
+  await run('flip-late-settings', async ({ page, dir, say }) => {
+    need();
+    await reduce(page);
+    const mark = errors.length;
+    await flipUI(page);
+    eq((await backGeom(page)).capText, `Shuffle 3${TIMES}3`, 'caption before the settings arrive');
+    await ready(page);
+    const g = await backGeom(page);
+    eq(g.capText, `Shuffle 4${TIMES}3`, 'caption after the settings arrive');
+    eq(g.cells, solvedBoard(12), 'back cells after the settings arrive');
+    expectBackLayout(g, 4, 3, 'after arrival');
+    eq(await board(page), solvedBoard(12), 'board after arrival');
+    await gridOf(page, 4, 3, 'board 4x3');
+    await shot(page, dir, 'back-after-arrival.png');
+    await flipUI(page);
+    eq(await pressedOf(page), 'false', 'aria-pressed after flipping back');
+    ok(!(await page.$eval('#frame', (e) => e.inert)), 'frame inert after flipping back');
+    eq(errors.slice(mark), [], 'console output');
+    say('flipped before the delayed settings arrived: back "Shuffle 3×3", then "Shuffle 4×3" with 12 cells; flipping back works');
+  }, { url: cn ? cn.origin + '/' : undefined });
+  if (cn) cn.settings = null;
+
   // preset-requests: AC6. The Python servers only ever saw the page and images/.
   await run('preset-requests', async ({ say }) => {
     need();
@@ -2529,8 +3136,6 @@ async function main() {
     const bad = [...changed].filter((f) => f !== 'index.html' && f !== 'settings.json' && f !== 'README.md' && !f.startsWith('test-results/') && !(f.startsWith('images/') && !f.slice(7).includes('/') && R1.test(f)));
     eq(bad, [], 'files outside index.html, settings.json, README.md, test-results/** and images/<image>');
     ok(changed.has('index.html'), 'index.html not in change set');
-    ok(changed.has('README.md'), 'README.md not in change set');
-    ok(changed.has('settings.json'), 'settings.json not in change set');
     const tracked = sh('git ls-files images/');
     ok(tracked.length >= 1, 'no tracked file under images/');
     eq(tracked.filter((f) => !R1.test(f)), [], 'tracked files under images/ without a recognised extension');

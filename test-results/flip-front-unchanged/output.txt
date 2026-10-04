@@ -1,0 +1,3 @@
+(a) numbers: one move, flipped for the timer to go 0 -> 2; board, markup, moves unchanged after flipping back; no peek/penalty/cheat text
+(b) won board: no automatic flip, message stays, back grid solved, timer stayed 0, moves 2
+(c) image 3x3: labels and piece pixels unchanged after two flips, moves 0

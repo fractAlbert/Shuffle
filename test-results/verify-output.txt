@@ -58,6 +58,16 @@ PASS settings-values
 PASS settings-fallback
 PASS settings-late
 PASS readme-settings
+PASS flip-control
+PASS flip-front-unchanged
+PASS flip-no-moves
+PASS back-numbers
+PASS back-image
+PASS back-caption
+PASS flip-motion
+PASS back-look
+PASS flip-resize
+PASS flip-late-settings
 PASS preset-requests
 PASS preset-layout
 PASS readme-run

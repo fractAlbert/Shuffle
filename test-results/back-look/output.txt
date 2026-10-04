@@ -1,0 +1,48 @@
+numbers 3x3 at 1280x800 #back colours: [[36,36,36],[22,22,22],[16,16,16]]
+numbers 3x3 at 1280x800: black plate, maker right band 216 bright, left band 0, panel 0 non-grey
+numbers 6x6 at 1280x800 #back colours: [[36,36,36],[22,22,22],[16,16,16]]
+numbers 6x6 at 1280x800: black plate, maker right band 217 bright, left band 0, panel 0 non-grey
+numbers 10x10 at 1280x800 #back colours: [[36,36,36],[22,22,22],[16,16,16]]
+numbers 10x10 at 1280x800: black plate, maker right band 218 bright, left band 0, panel 0 non-grey
+numbers 3x10 at 1280x800 #back colours: [[36,36,36],[22,22,22],[16,16,16]]
+numbers 3x10 at 1280x800: black plate, maker right band 216 bright, left band 0, panel 0 non-grey
+numbers 10x3 at 1280x800 #back colours: [[36,36,36],[22,22,22],[16,16,16]]
+numbers 10x3 at 1280x800: black plate, maker right band 217 bright, left band 0, panel 0 non-grey
+image 3x3 at 1280x800 #back colours: [[36,36,36],[22,22,22],[16,16,16]]
+image 3x3 at 1280x800: black plate, maker right band 216 bright, left band 0, panel 0 non-grey
+numbers 3x3 at 560x800 #back colours: [[36,36,36],[22,22,22],[16,16,16]]
+numbers 3x3 at 560x800: black plate, maker right band 216 bright, left band 0, panel 0 non-grey
+numbers 6x6 at 560x800 #back colours: [[36,36,36],[22,22,22],[16,16,16]]
+numbers 6x6 at 560x800: black plate, maker right band 217 bright, left band 0, panel 0 non-grey
+numbers 10x10 at 560x800 #back colours: [[36,36,36],[22,22,22],[16,16,16]]
+numbers 10x10 at 560x800: black plate, maker right band 217 bright, left band 0, panel 0 non-grey
+numbers 3x10 at 560x800 #back colours: [[36,36,36],[22,22,22],[16,16,16]]
+numbers 3x10 at 560x800: black plate, maker right band 216 bright, left band 0, panel 0 non-grey
+numbers 10x3 at 560x800 #back colours: [[36,36,36],[22,22,22],[16,16,16]]
+numbers 10x3 at 560x800: black plate, maker right band 217 bright, left band 0, panel 0 non-grey
+image 3x3 at 560x800 #back colours: [[36,36,36],[22,22,22],[16,16,16]]
+image 3x3 at 560x800: black plate, maker right band 216 bright, left band 0, panel 0 non-grey
+numbers 3x3 at 390x844 #back colours: [[36,36,36],[22,22,22],[16,16,16]]
+numbers 3x3 at 390x844: black plate, maker right band 214 bright, left band 0, panel 0 non-grey
+numbers 6x6 at 390x844 #back colours: [[36,36,36],[22,22,22],[16,16,16]]
+numbers 6x6 at 390x844: black plate, maker right band 216 bright, left band 0, panel 0 non-grey
+numbers 10x10 at 390x844 #back colours: [[36,36,36],[22,22,22],[16,16,16]]
+numbers 10x10 at 390x844: black plate, maker right band 216 bright, left band 0, panel 0 non-grey
+numbers 3x10 at 390x844 #back colours: [[36,36,36],[22,22,22],[16,16,16]]
+numbers 3x10 at 390x844: black plate, maker right band 216 bright, left band 0, panel 0 non-grey
+numbers 10x3 at 390x844 #back colours: [[36,36,36],[22,22,22],[16,16,16]]
+numbers 10x3 at 390x844: black plate, maker right band 215 bright, left band 0, panel 0 non-grey
+image 3x3 at 390x844 #back colours: [[36,36,36],[22,22,22],[16,16,16]]
+image 3x3 at 390x844: black plate, maker right band 214 bright, left band 0, panel 0 non-grey
+numbers 3x3 at 360x740 #back colours: [[36,36,36],[22,22,22],[16,16,16]]
+numbers 3x3 at 360x740: black plate, maker right band 214 bright, left band 0, panel 0 non-grey
+numbers 6x6 at 360x740 #back colours: [[36,36,36],[22,22,22],[16,16,16]]
+numbers 6x6 at 360x740: black plate, maker right band 216 bright, left band 0, panel 0 non-grey
+numbers 10x10 at 360x740 #back colours: [[36,36,36],[22,22,22],[16,16,16]]
+numbers 10x10 at 360x740: black plate, maker right band 216 bright, left band 0, panel 0 non-grey
+numbers 3x10 at 360x740 #back colours: [[36,36,36],[22,22,22],[16,16,16]]
+numbers 3x10 at 360x740: black plate, maker right band 216 bright, left band 0, panel 0 non-grey
+numbers 10x3 at 360x740 #back colours: [[36,36,36],[22,22,22],[16,16,16]]
+numbers 10x3 at 360x740: black plate, maker right band 215 bright, left band 0, panel 0 non-grey
+image 3x3 at 360x740 #back colours: [[36,36,36],[22,22,22],[16,16,16]]
+image 3x3 at 360x740: black plate, maker right band 214 bright, left band 0, panel 0 non-grey
