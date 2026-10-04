@@ -16,6 +16,8 @@ PASS win-message
 PASS no-win-at-zero-moves
 PASS solve-timer
 PASS layout
+PASS look
+PASS layout-scrollbar
 PASS code-shape
 PASS size-controls
 PASS size-all
@@ -28,4 +30,6 @@ PASS size-reroll
 PASS size-win
 PASS size-reset
 PASS single-file
+PASS script-unchanged
+PASS no-external-requests
 PASS console
