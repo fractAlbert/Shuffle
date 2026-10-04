@@ -1,7 +1,7 @@
-move: 480 bytes, identical to 3fec1f7
-shuffle: 342 bytes, identical to 3fec1f7
-isSolvable: 414 bytes, identical to 3fec1f7
-isSolved: 107 bytes, identical to 3fec1f7
-checkWin: 223 bytes, identical to 3fec1f7
-startTimer: 187 bytes, identical to 3fec1f7
-setSize: 232 bytes, identical to 3fec1f7
+move: 480 bytes, identical to 580a54f
+shuffle: 342 bytes, identical to 580a54f
+isSolvable: 414 bytes, identical to 580a54f
+isSolved: 107 bytes, identical to 580a54f
+checkWin: 223 bytes, identical to 580a54f
+startTimer: 187 bytes, identical to 580a54f
+setSize: 232 bytes, identical to 580a54f

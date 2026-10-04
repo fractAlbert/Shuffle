@@ -1,0 +1,1 @@
+late settings rows 4..8: dialog stayed open, options rows 4..8 cols 3..10, selects 4/7 (rows clamped, cols pick kept), board 4x3; Start gave 4x7

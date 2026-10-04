@@ -1,4 +1,4 @@
 offered exactly ["ok","ok two"]; Start ok opened the crop dialog
-canned origin requests: ["/","/images/","/images/ok.png"]
+canned origin requests: ["/","/settings.json","/images/","/images/ok.png"]
 redirect case console: error Failed to load resource: net::ERR_FAILED @ http://example.invalid/images/
-302 to another origin: treated as unavailable, no request to example.invalid; canned requests ["/","/images/"]
+302 to another origin: treated as unavailable, no request to example.invalid; canned requests ["/","/settings.json","/images/"]

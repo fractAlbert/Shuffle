@@ -18,5 +18,8 @@ function cropDone: present with comment
 function loadPresets: present with comment
 function parseListing: present with comment
 function onListed: present with comment
+function gridRange: present with comment
+function applyRange: present with comment
+function loadSettings: present with comment
 SIZE: absent
 isSolvable(tiles, cols): present

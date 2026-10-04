@@ -1,3 +1,5 @@
 3x4: 10 shuffles, 10 distinct
 5x3: 10 shuffles, 10 distinct
 6x6: 10 shuffles, 10 distinct
+10x10: 10 shuffles, 10 distinct
+3x10: 10 shuffles, 10 distinct

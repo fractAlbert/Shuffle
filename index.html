@@ -10,6 +10,10 @@
     --table: #c9c6bf; --plastic: #161616; --plastic-edge: #3a3a3a; --floor: #050505;
     --cream: #efe6cf; --cream-hi: #fbf6e8; --cream-lo: #cfc3a4; --ink: #1c1a17; --print: #f5f5f2;
     --gap: 3px; --gutter: 16px; --frame-pad: 20px; --panel: 132px; --well-pad: 5px;
+    /* smallest tile the height rule may shrink to */
+    --tile-floor: 24px;
+    /* vertical space outside the board (page padding, frame, status, buttons, message); tiles shrink to fit the viewport height */
+    --vchrome: 240px;
     /* horizontal space inside the body's content box that is not tiles or gaps */
     --chrome: calc(2 * var(--frame-pad) + var(--panel) + 2 * var(--well-pad));
   }
@@ -44,7 +48,9 @@
   }
   .note { margin: 0; font-size: 0.8rem; line-height: 1.25; color: var(--print); }
   #board {
-    --tile: min(64px, calc((100cqi - var(--chrome) - (var(--cols, 3) - 1) * var(--gap)) / var(--cols, 3)));
+    --tile: min(64px,
+      calc((100cqi - var(--chrome) - (var(--cols, 3) - 1) * var(--gap)) / var(--cols, 3)),
+      max(var(--tile-floor), calc((100svh - var(--vchrome) - (var(--rows, 3) - 1) * var(--gap)) / var(--rows, 3))));
     display: grid; gap: var(--gap);
     grid-template-columns: repeat(var(--cols, 3), var(--tile)); grid-auto-rows: var(--tile);
   }
@@ -108,7 +114,7 @@
   #message[hidden] { display: none; }
   /* Narrow screens: drop the side panel and print the title strip above the well instead. */
   @media (max-width: 559px) {
-    :root { --frame-pad: 14px; --panel: 0px; }
+    :root { --frame-pad: 14px; --panel: 0px; --vchrome: 266px; }
     .frame { flex-direction: column-reverse; }
     .well { align-self: center; }
     .panel { width: auto; padding: 0 0 10px; flex-direction: row; align-items: flex-end; justify-content: space-between; gap: 10px; }
@@ -137,8 +143,8 @@
 <dialog id="new-dialog" aria-labelledby="new-title">
   <h2 id="new-title">New puzzle</h2>
   <div class="size">
-    <label>Rows <select id="rows" autocomplete="off"><option value="3">3</option><option value="4">4</option><option value="5">5</option><option value="6">6</option></select></label>
-    <label>Columns <select id="cols" autocomplete="off"><option value="3">3</option><option value="4">4</option><option value="5">5</option><option value="6">6</option></select></label>
+    <label>Rows <select id="rows" autocomplete="off"></select></label>
+    <label>Columns <select id="cols" autocomplete="off"></select></label>
   </div>
   <fieldset class="kind"><legend>Tiles</legend>
     <label><input type="radio" name="kind" id="kind-numbers" value="numbers" checked> Numbers</label>
@@ -178,6 +184,7 @@ let crop = null; // open crop modal: { bmp, rows, cols, z, cx, cy, vw, vh }
 let decodeId = 0; // generation token for the pending decode in the New dialog
 let listId = 0; // generation token for the pending images/ listing in the New dialog
 let dragFrom = null; // last pointer position while dragging the crop view, or null
+let range = null; // sizes offered in the New dialog: { rows: { min, max }, cols: { min, max } }
 
 // Rebuild the board DOM and counters from the current state, then check for a win.
 function render() {
@@ -525,7 +532,52 @@ cropView.addEventListener('keydown', (e) => {
   moveCrop(step[0] * crop.vw, step[1] * crop.vh);
 });
 
+const GRID_DEFAULT = { min: 3, max: 10 }; // the shipped settings.json range, used when it cannot be read
+const GRID_LIMIT = { min: 3, max: 12 }; // hard bounds that keep tiles usable at 360px
+
+// Return the offered grid range from parsed settings, using the default for each missing or bad value.
+function gridRange(s) {
+  const ok = (v) => Number.isInteger(v) && v >= GRID_LIMIT.min && v <= GRID_LIMIT.max;
+  const pick = (dim) => {
+    const d = s && s.grid && s.grid[dim];
+    const min = d && ok(d.min) ? d.min : GRID_DEFAULT.min;
+    const max = d && ok(d.max) ? d.max : GRID_DEFAULT.max;
+    return min <= max ? { min, max } : { min: GRID_DEFAULT.min, max: GRID_DEFAULT.max };
+  };
+  return { rows: pick('rows'), cols: pick('columns') };
+}
+
+// Offer exactly range next in the Rows and Columns selects; if the game lies outside it, start numbers at the nearest size.
+function applyRange(next) {
+  if (range && JSON.stringify(range) === JSON.stringify(next)) return;
+  range = next;
+  const near = (v, d) => Math.min(Math.max(v, d.min), d.max);
+  const r2 = near(rows, next.rows), c2 = near(cols, next.cols);
+  if (r2 !== rows || c2 !== cols) {
+    if (image && !(crop && crop.bmp === image)) image.close();
+    image = null;
+    pieces = null;
+    setSize(r2, c2);
+  }
+  for (const [id, d, cur] of [['rows', next.rows, rows], ['cols', next.cols, cols]]) {
+    const sel = $(id), picked = Number(sel.value);
+    sel.innerHTML = '';
+    for (let v = d.min; v <= d.max; v++) sel.add(new Option(String(v), String(v)));
+    sel.value = String(picked >= d.min && picked <= d.max ? picked : cur);
+  }
+}
+
+// Read settings.json from the page's own server; resolve null on file:// or when it is missing or not valid JSON.
+function loadSettings() {
+  if (location.protocol === 'file:') return Promise.resolve(null);
+  return fetch('settings.json', { cache: 'no-store', redirect: 'error' })
+    .then((res) => (res.ok ? res.json() : null))
+    .catch(() => null);
+}
+
+applyRange(gridRange(null));
 render();
+const settingsReady = loadSettings().then((s) => applyRange(gridRange(s)));
 </script>
 </body>
 </html>

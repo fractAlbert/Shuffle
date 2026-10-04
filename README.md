@@ -12,6 +12,24 @@ Pictures dropped into `images/` (jpg, jpeg, png, webp, gif, avif) appear in the 
 
 See [`shuffle.md`](shuffle.md) for the product spec.
 
+## Settings
+
+`settings.json` in the repo root sets the puzzle sizes offered in the New dialog. Rows are the vertical count, columns the horizontal count; each has a smallest (`min`) and largest (`max`) value.
+
+```json
+{
+  "grid": {
+    "rows": { "min": 3, "max": 10 },
+    "columns": { "min": 3, "max": 10 }
+  }
+}
+```
+
+Values must be whole numbers from 3 to 12. A missing or invalid value uses its default (3 for `min`, 10 for `max`); if a `min` ends up above its `max`, that pair goes back to 3 to 10. Changes show the next time the page loads.
+
+The app reads this file only when served over HTTP (`python -m http.server`, see **Run**). Opened directly as a `file://` page, it offers 3 to 10.
+
+
 <!-- atlas-v3:readme:start -->
 ## Atlas
 
