@@ -58,6 +58,12 @@
   .tile:hover { filter: brightness(1.04); }
   .tile.empty { background: var(--floor); box-shadow: inset 0 1px 3px rgba(0,0,0,0.9); cursor: default; filter: none; }
   .status { display: flex; gap: 24px; font-size: 1.05rem; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .tile.image { position: relative; overflow: hidden; background: var(--floor); box-shadow: 0 1px 1px rgba(0,0,0,0.5); }
+  .tile.image canvas { display: block; width: 100%; height: 100%; }
+  .tile.image::after {
+    content: ''; position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
+    box-shadow: inset 1px 1px 0 rgba(255,255,255,0.4), inset -1px -1px 0 rgba(0,0,0,0.3);
+  }
   .size { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px 24px; font-size: 1.05rem; font-weight: 600; color: var(--ink); }
   .size select {
     font: inherit; margin-left: 4px; padding: 4px 8px; border: none; border-radius: 8px; cursor: pointer;
@@ -65,12 +71,36 @@
     box-shadow: inset 0 1px 0 rgba(255,255,255,0.15), 0 2px 4px rgba(0,0,0,0.3);
   }
   .size option { background: #1a1a1a; color: var(--print); }
-  #shuffle {
+  #shuffle, #new, dialog button {
     padding: 10px 26px; font-size: 1rem; font-weight: 600; border: none; border-radius: 8px; cursor: pointer;
     background: linear-gradient(#2a2a2a, #121212); color: var(--print);
     box-shadow: inset 0 1px 0 rgba(255,255,255,0.15), 0 2px 4px rgba(0,0,0,0.3);
   }
-  #shuffle:hover { background: linear-gradient(#333, #1a1a1a); }
+  #shuffle:hover, #new:hover, dialog button:hover { background: linear-gradient(#333, #1a1a1a); }
+  dialog button { padding: 8px 18px; box-shadow: inset 0 1px 0 rgba(255,255,255,0.15), 0 0 0 1px var(--plastic-edge); }
+  dialog button:disabled { opacity: 0.5; cursor: default; }
+  .actions { display: flex; gap: 12px; }
+  dialog {
+    width: min(440px, calc(100% - 32px)); padding: 20px; border: none; border-radius: 14px;
+    background: linear-gradient(160deg, #242424, var(--plastic) 40%, #101010); color: var(--print); color-scheme: dark;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.14), inset 0 0 0 1px var(--plastic-edge),
+                0 10px 24px rgba(0,0,0,0.35), 0 2px 4px rgba(0,0,0,0.3);
+  }
+  dialog::backdrop { background: rgba(0, 0, 0, 0.55); }
+  dialog .size, dialog label, dialog legend, dialog .hint, dialog h2 { color: var(--print); }
+  dialog h2 { margin: 0 0 12px; font: italic 700 1.5rem/1.1 "Segoe Script", "Brush Script MT", "Snell Roundhand", "Apple Chancery", cursive; }
+  dialog .hint { margin: 0 0 12px; font-size: 0.9rem; }
+  dialog .size { margin-bottom: 14px; justify-content: flex-start; }
+  dialog fieldset { margin: 0 0 14px; padding: 8px 12px; border: 1px solid var(--plastic-edge); border-radius: 8px; display: flex; gap: 18px; }
+  dialog fieldset label { font-weight: 600; }
+  dialog input[type="radio"], dialog input[type="range"] { accent-color: var(--cream); }
+  dialog .file { display: block; margin-bottom: 12px; font-weight: 600; }
+  dialog .file input { display: block; margin-top: 6px; max-width: 100%; }
+  dialog .zoom { display: flex; align-items: center; gap: 10px; margin: 12px 0; font-weight: 600; }
+  dialog .zoom input { flex: 1; min-width: 0; }
+  #crop-view { display: block; margin: 0 auto; touch-action: none; cursor: grab; border-radius: 3px; background: var(--floor); }
+  #new-error { margin: 0 0 12px; color: #ffb4a8; font-weight: 600; }
+  .dialog-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 10px; }
   #message { min-height: 1.5em; font-size: 1.2rem; font-weight: 700; color: var(--ink); }
   #message[hidden] { display: none; }
   /* Narrow screens: drop the side panel and print the title strip above the well instead. */
@@ -96,12 +126,39 @@
   <span id="moves">Moves: 0</span>
   <span id="timer">Time: 0s</span>
 </div>
-<div class="size">
-  <label>Rows <select id="rows" autocomplete="off"><option value="3">3</option><option value="4">4</option><option value="5">5</option><option value="6">6</option></select></label>
-  <label>Columns <select id="cols" autocomplete="off"><option value="3">3</option><option value="4">4</option><option value="5">5</option><option value="6">6</option></select></label>
+<div class="actions">
+  <button id="new" type="button">New</button>
+  <button id="shuffle" type="button">Shuffle</button>
 </div>
-<button id="shuffle" type="button">Shuffle</button>
 <div id="message" hidden>You solved it!</div>
+<dialog id="new-dialog" aria-labelledby="new-title">
+  <h2 id="new-title">New puzzle</h2>
+  <div class="size">
+    <label>Rows <select id="rows" autocomplete="off"><option value="3">3</option><option value="4">4</option><option value="5">5</option><option value="6">6</option></select></label>
+    <label>Columns <select id="cols" autocomplete="off"><option value="3">3</option><option value="4">4</option><option value="5">5</option><option value="6">6</option></select></label>
+  </div>
+  <fieldset class="kind"><legend>Tiles</legend>
+    <label><input type="radio" name="kind" id="kind-numbers" value="numbers" checked> Numbers</label>
+    <label><input type="radio" name="kind" id="kind-image" value="image"> Image</label>
+  </fieldset>
+  <label class="file">Image file <input type="file" id="image-file" accept="image/*"></label>
+  <p id="new-error" role="alert" hidden></p>
+  <div class="dialog-actions">
+    <button id="new-cancel" type="button">Cancel</button>
+    <button id="new-start" type="button">Start</button>
+  </div>
+</dialog>
+<dialog id="crop-dialog" aria-labelledby="crop-title">
+  <h2 id="crop-title">Position your image</h2>
+  <p class="hint">Drag to move it. Use the slider to zoom.</p>
+  <canvas id="crop-view" tabindex="0" aria-label="Image crop. Drag, or use the arrow keys, to move the image."></canvas>
+  <label class="zoom">Zoom <input type="range" id="crop-zoom" min="1" max="4" step="0.01" value="1"></label>
+  <div class="dialog-actions">
+    <button id="crop-centre" type="button">Centre</button>
+    <button id="crop-cancel" type="button">Cancel</button>
+    <button id="crop-done" type="button">Done</button>
+  </div>
+</dialog>
 <script>
 let rows = 3;
 let cols = 3;
@@ -110,6 +167,11 @@ let moves = 0;
 let seconds = 0;
 let timerId = null;
 let frozen = false;
+let image = null; // ImageBitmap of the current image puzzle, or null for numbers
+let pieces = null; // pieces[v] = canvas for tile v, or null for numbers
+let crop = null; // open crop modal: { bmp, rows, cols, z, cx, cy, vw, vh }
+let decodeId = 0; // generation token for the pending decode in the New dialog
+let dragFrom = null; // last pointer position while dragging the crop view, or null
 
 // Rebuild the board DOM and counters from the current state, then check for a win.
 function render() {
@@ -121,7 +183,13 @@ function render() {
     const btn = document.createElement('button');
     btn.className = value === 0 ? 'tile empty' : 'tile';
     btn.dataset.index = i;
-    btn.textContent = value === 0 ? '' : value;
+    if (value !== 0 && pieces) {
+      btn.classList.add('image');
+      btn.setAttribute('aria-label', 'Tile ' + value);
+      btn.appendChild(pieces[value]);
+    } else {
+      btn.textContent = value === 0 ? '' : value;
+    }
     board.appendChild(btn);
   });
   document.getElementById('moves').textContent = 'Moves: ' + moves;
@@ -219,12 +287,169 @@ document.getElementById('board').addEventListener('click', (e) => {
   if (tile) move(Number(tile.dataset.index));
 });
 document.getElementById('shuffle').addEventListener('click', shuffle);
-// Start a new game at the size chosen in the Rows and Columns selects.
-function onSizeChange() {
-  setSize(Number(document.getElementById('rows').value), Number(document.getElementById('cols').value));
+
+const $ = (id) => document.getElementById(id);
+const newDialog = $('new-dialog');
+const cropDialog = $('crop-dialog');
+const cropView = $('crop-view');
+const cropZoom = $('crop-zoom');
+
+// Show the New puzzle dialog, prefilled with the current size and tile kind.
+function openNew() {
+  $('rows').value = String(rows);
+  $('cols').value = String(cols);
+  $(image ? 'kind-image' : 'kind-numbers').checked = true;
+  $('image-file').value = '';
+  $('new-error').hidden = true;
+  $('new-start').disabled = false;
+  newDialog.showModal();
 }
-document.getElementById('rows').addEventListener('change', onSizeChange);
-document.getElementById('cols').addEventListener('change', onSizeChange);
+
+// Start the puzzle chosen in the New dialog: numbers at once, an image via the crop dialog.
+function startNew() {
+  const r = Number($('rows').value);
+  const c = Number($('cols').value);
+  const file = $('image-file').files[0];
+  const error = (text) => { $('new-error').textContent = text; $('new-error').hidden = false; };
+  $('new-error').hidden = true;
+  if (!$('kind-image').checked) {
+    newDialog.close();
+    if (image) image.close();
+    image = null;
+    pieces = null;
+    setSize(r, c);
+  } else if (!file && image) {
+    newDialog.close();
+    openCrop(image, r, c);
+  } else if (!file) {
+    error('Choose an image file.');
+  } else {
+    const id = ++decodeId;
+    $('new-start').disabled = true;
+    createImageBitmap(file).then((bmp) => onDecoded(bmp, id, r, c), () => onRejected(id));
+  }
+}
+
+// Open the crop dialog for a decoded image, unless the New dialog closed or a newer decode started.
+function onDecoded(bmp, id, r, c) {
+  if (!newDialog.open || id !== decodeId) { bmp.close(); return; }
+  newDialog.close();
+  openCrop(bmp, r, c);
+}
+
+// Report an undecodable file in the New dialog, unless it closed or a newer decode started.
+function onRejected(id) {
+  if (!newDialog.open || id !== decodeId) return;
+  $('new-start').disabled = false;
+  $('new-error').textContent = 'That file is not an image.';
+  $('new-error').hidden = false;
+}
+
+// Return the crop rectangle for state c (cover base, zoom, centre clamped inside the image), clamping c's centre.
+function cropRect(c) {
+  const W = c.bmp.width, H = c.bmp.height, A = c.cols / c.rows;
+  const wide = W / H >= A;
+  const cw = (wide ? H * A : W) / c.z, ch = (wide ? H : W / A) / c.z;
+  c.cx = Math.min(Math.max(c.cx, cw / 2), W - cw / 2);
+  c.cy = Math.min(Math.max(c.cy, ch / 2), H - ch / 2);
+  return { sx: c.cx - cw / 2, sy: c.cy - ch / 2, cw, ch };
+}
+
+// Open the crop dialog for bmp at r rows by c columns: zoom 1, centred, view sized after the dialog is shown.
+function openCrop(bmp, r, c) {
+  crop = { bmp, rows: r, cols: c, z: 1, cx: bmp.width / 2, cy: bmp.height / 2, vw: 0, vh: 0 };
+  dragFrom = null;
+  cropZoom.value = '1';
+  cropDialog.showModal();
+  const cs = getComputedStyle(cropDialog);
+  const A = c / r;
+  const maxW = Math.min(cropDialog.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight), 420);
+  const maxH = Math.min(360, window.innerHeight / 2);
+  crop.vw = Math.max(1, Math.floor(Math.min(maxW, maxH * A)));
+  crop.vh = Math.max(1, Math.round(crop.vw / A));
+  const dpr = window.devicePixelRatio || 1;
+  cropView.style.width = crop.vw + 'px';
+  cropView.style.height = crop.vh + 'px';
+  cropView.width = Math.round(crop.vw * dpr);
+  cropView.height = Math.round(crop.vh * dpr);
+  drawCrop();
+}
+
+// Paint the crop rectangle into the view, then the white cut lines on exact backing pixels.
+function drawCrop() {
+  const ctx = cropView.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const r = cropRect(crop);
+  const t = Math.max(1, Math.round(dpr));
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.clearRect(0, 0, cropView.width, cropView.height);
+  ctx.drawImage(crop.bmp, r.sx, r.sy, r.cw, r.ch, 0, 0, cropView.width, cropView.height);
+  ctx.fillStyle = '#fff';
+  for (let k = 1; k < crop.cols; k++) ctx.fillRect(Math.round(k * crop.vw * dpr / crop.cols), 0, t, cropView.height);
+  for (let k = 1; k < crop.rows; k++) ctx.fillRect(0, Math.round(k * crop.vh * dpr / crop.rows), cropView.width, t);
+}
+
+// Apply a drag of (dx, dy) CSS pixels to the crop centre (the image follows the pointer) and redraw.
+function moveCrop(dx, dy) {
+  const r = cropRect(crop);
+  crop.cx -= dx * r.cw / crop.vw;
+  crop.cy -= dy * r.ch / crop.vh;
+  drawCrop();
+}
+
+// Cut the crop rectangle of bmp into one 128px canvas per tile value 1..rows*cols-1.
+function cutImage(bmp, r, rowCount, colCount) {
+  const out = [null];
+  const tw = r.cw / colCount, th = r.ch / rowCount;
+  for (let v = 1; v < rowCount * colCount; v++) {
+    const piece = document.createElement('canvas');
+    piece.width = 128;
+    piece.height = 128;
+    const col = (v - 1) % colCount, row = Math.floor((v - 1) / colCount);
+    piece.getContext('2d').drawImage(bmp, r.sx + col * tw, r.sy + row * th, tw, th, 0, 0, 128, 128);
+    out.push(piece);
+  }
+  return out;
+}
+
+// Adopt the cropped image: cut the pieces, close the dialog and start a solved, unshuffled puzzle.
+function cropDone() {
+  const c = crop;
+  const cut = cutImage(c.bmp, cropRect(c), c.rows, c.cols);
+  if (image && image !== c.bmp) image.close();
+  image = c.bmp;
+  pieces = cut;
+  cropDialog.close();
+  setSize(c.rows, c.cols);
+}
+
+$('new').addEventListener('click', openNew);
+$('new-start').addEventListener('click', startNew);
+$('new-cancel').addEventListener('click', () => newDialog.close());
+newDialog.addEventListener('close', () => { decodeId++; $('new-start').disabled = false; });
+$('image-file').addEventListener('change', () => { if ($('image-file').files.length) $('kind-image').checked = true; });
+$('crop-cancel').addEventListener('click', () => cropDialog.close());
+$('crop-done').addEventListener('click', cropDone);
+$('crop-centre').addEventListener('click', () => { crop.cx = crop.bmp.width / 2; crop.cy = crop.bmp.height / 2; drawCrop(); });
+cropZoom.addEventListener('input', () => { crop.z = Number(cropZoom.value); drawCrop(); });
+cropDialog.addEventListener('close', () => {
+  if (crop && crop.bmp !== image) crop.bmp.close();
+  crop = null;
+});
+cropView.addEventListener('pointerdown', (e) => { cropView.setPointerCapture(e.pointerId); dragFrom = { x: e.clientX, y: e.clientY }; });
+cropView.addEventListener('pointermove', (e) => {
+  if (!dragFrom) return;
+  moveCrop(e.clientX - dragFrom.x, e.clientY - dragFrom.y);
+  dragFrom = { x: e.clientX, y: e.clientY };
+});
+cropView.addEventListener('pointerup', () => { dragFrom = null; });
+cropView.addEventListener('pointercancel', () => { dragFrom = null; });
+cropView.addEventListener('keydown', (e) => {
+  const step = { ArrowLeft: [-0.05, 0], ArrowRight: [0.05, 0], ArrowUp: [0, -0.05], ArrowDown: [0, 0.05] }[e.key];
+  if (!step) return;
+  e.preventDefault();
+  moveCrop(step[0] * crop.vw, step[1] * crop.vh);
+});
 
 render();
 </script>

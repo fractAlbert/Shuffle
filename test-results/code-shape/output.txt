@@ -5,5 +5,15 @@ function shuffle: present with comment
 function isSolvable: present with comment
 function isSolved: present with comment
 function checkWin: present with comment
+function openNew: present with comment
+function startNew: present with comment
+function onDecoded: present with comment
+function onRejected: present with comment
+function cropRect: present with comment
+function openCrop: present with comment
+function drawCrop: present with comment
+function moveCrop: present with comment
+function cutImage: present with comment
+function cropDone: present with comment
 SIZE: absent
 isSolvable(tiles, cols): present

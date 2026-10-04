@@ -1,0 +1,3 @@
+Cancel: board, moves and kind unchanged; timer kept counting
+Escape: board, moves and kind unchanged; timer kept counting
+image puzzle kept after Cancel: 3x3, 8 pieces still at their home cells

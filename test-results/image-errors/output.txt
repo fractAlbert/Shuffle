@@ -1,0 +1,6 @@
+(a) no file: "Choose an image file.", dialog open, game unchanged
+(b) notes.txt: "That file is not an image.", dialog open, game unchanged
+(c) landscape.png after the error: error cleared, crop dialog opened
+(d) Escape during decode: no crop dialog, game unchanged; (e) Start disabled while pending, enabled again at the next open
+(f) stale token: first decode released alone changed nothing; the second opened the crop dialog
+(f2) stale rejection: first decode released alone changed nothing; the second opened the crop dialog

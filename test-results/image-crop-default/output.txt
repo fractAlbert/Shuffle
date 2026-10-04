@@ -1,0 +1,8 @@
+landscape.png 3x3: crop sx 100.0 sy 0.0 cw 400.0 ch 400.0; preview error 1.11px; 8 pieces, worst error 1.11px
+landscape.png 3x3: view 360x360, backing 360,360, modal, zoom 1..4 at 1
+landscape.png 3x6: crop sx 0.0 sy 50.0 cw 600.0 ch 300.0; preview error 1.14px; 17 pieces, worst error 1.01px
+landscape.png 3x6: view 400x200, backing 400,200, modal, zoom 1..4 at 1
+portrait.png 4x3: crop sx 0.0 sy 33.3 cw 400.0 ch 533.3; preview error 1.57px; 11 pieces, worst error 1.01px
+portrait.png 4x3: view 270x360, backing 270,360, modal, zoom 1..4 at 1
+DPR2 landscape.png 3x3: crop sx 100.0 sy 0.0 cw 400.0 ch 400.0; preview error 1.11px; 8 pieces, worst error 1.11px
+DPR2 landscape.png 3x3: view 360x360, backing 720,720, modal, zoom 1..4 at 1

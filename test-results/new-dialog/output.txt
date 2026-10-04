@@ -1,0 +1,2 @@
+Cancel: dialog closed, board and moves unchanged, timer still counting
+Escape: dialog closed, board and moves unchanged, timer still counting

@@ -1,0 +1,8 @@
+(a) zoom 2: crop sx 200.0 sy 100.0 cw 200.0 ch 200.0; preview error 0.78px; 8 pieces, worst error 0.78px
+(b) zoom 2 drag +0.25: crop sx 150.0 sy 50.0 cw 200.0 ch 200.0; preview error 1.35px; 8 pieces, worst error 1.00px
+(c) zoom 2 drag -2 clamps: crop sx 400.0 sy 200.0 cw 200.0 ch 200.0; preview error 2.01px; 8 pieces, worst error 1.11px
+(d) drag then Centre: crop sx 200.0 sy 100.0 cw 200.0 ch 200.0; preview error 1.67px; 8 pieces, worst error 0.78px
+(e) zoom 2 ArrowLeft x4: crop sx 240.0 sy 100.0 cw 200.0 ch 200.0; preview error 1.74px; 8 pieces, worst error 0.85px
+(f) zoom 1 drag +Vw clamps: crop sx 0.0 sy 0.0 cw 400.0 ch 400.0; preview error 0.95px; 8 pieces, worst error 1.45px
+(g) 3x6 zoom 2 drag -2 clamps: crop sx 300.0 sy 250.0 cw 300.0 ch 150.0; preview error 1.84px; 17 pieces, worst error 1.17px
+(h) 3x6 zoom 2 ArrowUp x2: crop sx 150.0 sy 140.0 cw 300.0 ch 150.0; preview error 1.84px; 17 pieces, worst error 1.17px

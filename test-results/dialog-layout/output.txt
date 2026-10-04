@@ -1,0 +1,24 @@
+1280x800 New dialog background colours: [[36,36,36],[22,22,22],[16,16,16]]
+1280x800 New: dialog 440x291 at (420, 254), 4 controls inside, 9 text leaves light
+1280x800 crop 3x6 dialog background colours: [[36,36,36],[22,22,22],[16,16,16]]
+1280x800 crop 3x6: dialog 440x389 at (420, 205), 3 controls inside, 6 text leaves light
+1280x800 crop 6x3 dialog background colours: [[36,36,36],[22,22,22],[16,16,16]]
+1280x800 crop 6x3: dialog 440x549 at (420, 125), 3 controls inside, 6 text leaves light
+560x800 New dialog background colours: [[36,36,36],[22,22,22],[16,16,16]]
+560x800 New: dialog 440x291 at (60, 254), 4 controls inside, 9 text leaves light
+560x800 crop 3x6 dialog background colours: [[36,36,36],[22,22,22],[16,16,16]]
+560x800 crop 3x6: dialog 440x389 at (60, 205), 3 controls inside, 6 text leaves light
+560x800 crop 6x3 dialog background colours: [[36,36,36],[22,22,22],[16,16,16]]
+560x800 crop 6x3: dialog 440x549 at (60, 125), 3 controls inside, 6 text leaves light
+390x844 New dialog background colours: [[36,36,36],[22,22,22],[16,16,16]]
+390x844 New: dialog 352x291 at (19, 276), 4 controls inside, 9 text leaves light
+390x844 crop 3x6 dialog background colours: [[36,36,36],[22,22,22],[16,16,16]]
+390x844 crop 3x6: dialog 352x345 at (19, 249), 3 controls inside, 6 text leaves light
+390x844 crop 6x3 dialog background colours: [[36,36,36],[22,22,22],[16,16,16]]
+390x844 crop 6x3: dialog 352x549 at (19, 147), 3 controls inside, 6 text leaves light
+360x740 New dialog background colours: [[36,36,36],[22,22,22],[16,16,16]]
+360x740 New: dialog 322x291 at (19, 224), 4 controls inside, 9 text leaves light
+360x740 crop 3x6 dialog background colours: [[36,36,36],[22,22,22],[16,16,16]]
+360x740 crop 3x6: dialog 322x330 at (19, 205), 3 controls inside, 6 text leaves light
+360x740 crop 6x3 dialog background colours: [[36,36,36],[22,22,22],[16,16,16]]
+360x740 crop 6x3: dialog 322x549 at (19, 95), 3 controls inside, 6 text leaves light

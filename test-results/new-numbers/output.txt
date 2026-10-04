@@ -1,0 +1,1 @@
+4x5 image puzzle -> New, Numbers, 5x3: solved numbers, no canvas, moves 0, timer 0s
