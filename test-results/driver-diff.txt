@@ -1,0 +1,326 @@
+diff --git a/test-results/verify.cjs b/test-results/verify.cjs
+index 9795a89..77f63f4 100644
+--- a/test-results/verify.cjs
++++ b/test-results/verify.cjs
+@@ -1,16 +1,16 @@
+-// Verification driver (test tooling, not app code). See plan section 6 of issues #1, #2, #4 and #5.
++// Verification driver (test tooling, not app code). See plan section 6 of issues #1, #2, #4, #5 and #7.
+ const fs = require('fs');
+ const os = require('os');
+ const path = require('path');
+ const url = require('url');
+-const { execSync } = require('child_process');
++const { execSync, spawnSync } = require('child_process');
+ if (!process.env.PW_DIR) { console.error('Set PW_DIR to the playwright package directory (see plan section 6).'); process.exit(2); }
+ const { chromium } = require(process.env.PW_DIR);
+ 
+ const ROOT = process.cwd();
+ const OUT = path.join(ROOT, 'test-results');
+ const PAGE_URL = url.pathToFileURL(path.resolve('index.html')).href;
+-// Change-set base for single-file; requires a fresh `git fetch origin main` first.
++// Change-set base for single-file and script-unchanged; requires a fresh `git fetch origin main` first.
+ const BASE = execSync('git merge-base origin/main HEAD', { encoding: 'utf8' }).trim();
+ const lines = [];
+ const errors = [];
+@@ -91,6 +91,28 @@ function permutations(n) {
+   go(0);
+   return out;
+ }
++// Look helpers (#7): size matrix, viewports, computed-colour and geometry readers.
++const SIZES = [[3, 3], [3, 4], [4, 3], [6, 6], [3, 6], [6, 3]];
++const VIEWS = [[1280, 800], [560, 800], [390, 844], [360, 740]];
++const requests = [];
++// Every opaque colour (rgb() or rgba(...,1)) in an element's computed background-color and background-image; translucent overlays are ignored.
++const colours = (page, sel) => page.$eval(sel, (el) => {
++  const cs = getComputedStyle(el);
++  const out = [];
++  for (const m of (cs.backgroundColor + ' ' + cs.backgroundImage).matchAll(/rgba?\(\s*(\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d.]+))?\s*\)/g)) {
++    if (m[4] === undefined || Number(m[4]) === 1) out.push([Number(m[1]), Number(m[2]), Number(m[3])]);
++  }
++  return out;
++});
++const rgbOf = (str) => { const m = str.match(/rgba?\(\s*(\d+),\s*(\d+),\s*(\d+)/); return [Number(m[1]), Number(m[2]), Number(m[3])]; };
++const rect = (page, sel) => page.$eval(sel, (e) => { const r = e.getBoundingClientRect(); return { l: r.left, r: r.right, t: r.top, b: r.bottom, w: r.width, h: r.height }; });
++const style = (page, sel, prop) => page.$eval(sel, (e, p) => getComputedStyle(e)[p], prop);
++const overlap = (a, b) => a.l < b.r && b.l < a.r && a.t < b.b && b.t < a.b;
++const inside = (a, b, tol = 0.5) => a.l >= b.l - tol && a.r <= b.r + tol && a.t >= b.t - tol && a.b <= b.b + tol;
++const maxc = (c) => Math.max(...c);
++const lum = ([r, g, b]) => { const f = (v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); }; return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b); };
++const isGreen = ([r, g, b]) => g > r + 20 && g > b + 20;
++const nonVacuous = (list, what, say) => { say(`${what} colours: ${JSON.stringify(list)}`); ok(list.length >= 1, `${what}: no opaque colour found (vacuous)`); };
+ // Size helpers (#2): drive the real selects.
+ const setSizeUI = async (page, r, c) => { await page.selectOption('#rows', String(r)); await page.selectOption('#cols', String(c)); };
+ const solvedBoard = (n) => [...Array(n - 1).keys()].map((i) => String(i + 1)).concat('_');
+@@ -104,6 +126,7 @@ async function main() {
+   async function newPage(opts = {}) {
+     const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 }, ...opts });
+     const page = await ctx.newPage();
++    page.on('request', (r) => requests.push(r.url()));
+     page.on('pageerror', (e) => errors.push('pageerror: ' + e.message));
+     page.on('console', (m) => { if (m.type() === 'error') errors.push('console: ' + m.text()); });
+     await page.goto(PAGE_URL);
+@@ -134,13 +157,41 @@ async function main() {
+     }
+   }
+ 
+-  // title: AC2
+-  await run('title', async ({ page, say }) => {
+-    eq((await page.textContent('h1')).trim(), 'Shuffle', 'h1 text');
+-    const h = await page.locator('h1').first().boundingBox();
+-    const b = await page.locator('#board').boundingBox();
+-    say(`h1 bottom ${h.y + h.height}, board top ${b.y}`);
+-    ok(h.y + h.height <= b.y, 'h1 not above board');
++  // title: AC2 (#7): white script title and instruction note printed on the frame
++  await run('title', async ({ page, dir, say }) => {
++    for (const [w, h] of VIEWS) {
++      await page.setViewportSize({ width: w, height: h });
++      for (const [r, c] of [[3, 3], [6, 6]]) {
++        await setSizeUI(page, r, c);
++        const tag = `${w}x${h} ${r}x${c}`;
++        eq(await page.$$eval('h1', (e) => e.length), 1, tag + ' h1 count');
++        eq((await page.textContent('h1')).trim(), 'Shuffle', tag + ' h1 text');
++        ok(await page.$eval('h1', (e) => !!e.closest('.frame')), tag + ' h1 not inside .frame');
++        const fr = await rect(page, '.frame'), wl = await rect(page, '.well'), h1 = await rect(page, 'h1'), nt = await rect(page, '.note');
++        say(`${tag}: h1 ${JSON.stringify(h1)} well ${JSON.stringify(wl)} note ${JSON.stringify(nt)}`);
++        ok(inside(h1, fr), tag + ': h1 box not inside frame');
++        ok(!overlap(h1, wl), tag + ': h1 intersects well');
++        ok(h1.t <= wl.t + 8, `${tag}: h1 top ${h1.t} not in top corner (well top ${wl.t})`);
++        const hc = rgbOf(await style(page, 'h1', 'color'));
++        ok(hc.every((v) => v >= 230), tag + ': h1 colour ' + hc);
++        eq(await style(page, 'h1', 'fontStyle'), 'italic', tag + ' h1 font-style');
++        eq(await style(page, 'h1', 'whiteSpace'), 'nowrap', tag + ' h1 white-space');
++        ok(await page.$eval('.note', (e) => !!e.closest('.frame')), tag + ': .note not inside .frame');
++        eq((await page.textContent('.note')).trim(), 'Click a tile next to the gap to slide it.', tag + ' note text');
++        const nc = rgbOf(await style(page, '.note', 'color'));
++        ok(nc.every((v) => v >= 230), tag + ': note colour ' + nc);
++        ok(parseFloat(await style(page, '.note', 'fontSize')) < parseFloat(await style(page, 'h1', 'fontSize')), tag + ': note font not smaller than h1');
++        ok(inside(nt, fr), tag + ': note box not inside frame');
++        ok(!overlap(nt, wl), tag + ': note intersects well');
++        ok(!overlap(nt, h1), tag + ': note intersects h1');
++        const others = await page.evaluate(() => [...document.body.querySelectorAll('*')].filter((e) => !e.closest('.frame') && e.id !== 'shuffle' && e.children.length === 0 && e.textContent.trim() === 'Shuffle' && e.getClientRects().length > 0).length);
++        eq(others, 0, tag + ' other visible Shuffle text outside frame');
++      }
++    }
++    await page.setViewportSize({ width: 1280, height: 800 });
++    await setSizeUI(page, 3, 3);
++    await shot(page, dir, 'screenshot.png');
++    say('ok');
+   });
+ 
+   // initial-board: AC3, AC8
+@@ -415,39 +466,145 @@ async function main() {
+     eq(b, a, 'timer readings');
+   });
+ 
+-  // layout: AC6 (#2), extended to the largest sizes
++  // layout: AC5 (#7), a superset of #2's layout over SIZES x VIEWS; "board centred" became "frame centred"
+   await run('layout', async ({ page, dir, say }) => {
+-    const sizes = [[3, 3], [3, 6], [6, 3], [6, 6]];
+-    for (const [w, h, suffix] of [[1280, 800, ''], [390, 844, '-mobile']]) {
++    for (const [w, h] of VIEWS) {
+       await page.setViewportSize({ width: w, height: h });
+-      for (const [r, c] of sizes) {
++      for (const [r, c] of SIZES) {
+         await setSizeUI(page, r, c);
+         const m = await page.evaluate(() => {
+-          const bx = document.getElementById('board').getBoundingClientRect();
+-          const tiles = [...document.querySelectorAll('.tile')].map((t) => { const q = t.getBoundingClientRect(); return [q.width, q.height]; });
+-          const bg = (s) => getComputedStyle(document.querySelector(s)).backgroundColor;
+-          const sr = document.querySelector('.size').getBoundingClientRect();
++          const rc = (e) => { const q = e.getBoundingClientRect(); return { l: q.left, r: q.right, t: q.top, b: q.bottom, w: q.width, h: q.height }; };
++          const fr = rc(document.getElementById('frame'));
++          const tiles = [...document.querySelectorAll('.tile')].map(rc);
++          const bg = (s) => { const cs = getComputedStyle(document.querySelector(s)); return cs.backgroundColor + '|' + cs.backgroundImage; };
++          const bgColour = (s) => getComputedStyle(document.querySelector(s)).backgroundColor;
+           const msg = document.getElementById('message');
+           const was = msg.hidden;
+           msg.hidden = false;
+-          const msgBottom = msg.getBoundingClientRect().bottom;
++          const msgBox = rc(msg);
+           msg.hidden = was;
+-          return { left: bx.left, right: window.innerWidth - bx.right, tiles, emptyBg: bg('.tile.empty'), tileBg: bg('.tile:not(.empty)'), sw: document.documentElement.scrollWidth, cw: document.documentElement.clientWidth, sizeLeft: sr.left, sizeRight: sr.right, iw: window.innerWidth, ih: window.innerHeight, msgBottom };
++          return { fr, well: rc(document.querySelector('.well')), tiles, emptyBg: bg('.tile.empty'), tileBg: bg('.tile:not(.empty)'), emptyColour: bgColour('.tile.empty'), tileColour: bgColour('.tile:not(.empty)'), board: rc(document.getElementById('board')), sw: document.documentElement.scrollWidth, cw: document.documentElement.clientWidth, ih: window.innerHeight, size: rc(document.querySelector('.size')), status: rc(document.querySelector('.status')), shuffle: rc(document.getElementById('shuffle')), msgBox };
+         });
+         const tag = `${w}x${h} ${r}x${c}`;
+-        say(`${tag}: ${JSON.stringify(m)}`);
+-        ok(Math.abs(m.left - m.right) <= 2, `${tag}: margins ${m.left} vs ${m.right}`);
+-        ok(m.tiles.every(([tw, th]) => Math.abs(tw - th) <= 1), `${tag}: tiles not square`);
+-        ok(m.emptyBg !== m.tileBg, `${tag}: empty bg equals tile bg`);
+-        ok(m.sw <= m.cw, `${tag}: horizontal scroll`);
+-        ok(m.sizeLeft >= 0 && m.sizeRight <= m.iw, `${tag}: size row outside viewport width`);
+-        ok(m.msgBottom <= m.ih, `${tag}: message bottom ${m.msgBottom} beyond viewport ${m.ih}`);
+-        if (r === 3 && c === 3) await shot(page, dir, `screenshot${suffix}.png`);
+-        if (r === 6 && c === 6) await shot(page, dir, `screenshot-6x6${suffix}.png`);
++        say(`${tag}: tile ${m.tiles[0].w.toFixed(1)}px, frame ${m.fr.l.toFixed(1)}..${m.fr.r.toFixed(1)}, cw ${m.cw}, msgBottom ${m.msgBox.b.toFixed(1)}`);
++        ok(m.sw <= m.cw, `${tag}: horizontal scroll ${m.sw} > ${m.cw}`);
++        ok(m.tiles.every((q) => Math.abs(q.w - q.h) <= 1), tag + ': tiles not square');
++        ok(m.tiles.every((q) => q.w >= 40), `${tag}: tile under 40px (${m.tiles[0].w})`);
++        ok(m.emptyBg !== m.tileBg, tag + ': empty bg equals tile bg');
++        ok(m.emptyColour !== m.tileColour, tag + ': empty background-color equals tile background-color (#2 assertion)');
++        ok(Math.abs(m.fr.l - (m.cw - m.fr.r)) <= 2, `${tag}: frame margins ${m.fr.l} vs ${m.cw - m.fr.r}`);
++        for (const [k, q] of [['size row', m.size], ['.status', m.status], ['#shuffle', m.shuffle], ['#message', m.msgBox]]) ok(q.l >= 0 && q.r <= m.cw, `${tag}: ${k} outside [0, clientWidth]`);
++        ok(m.msgBox.b <= m.ih, `${tag}: message bottom ${m.msgBox.b} beyond viewport ${m.ih}`);
++        ok(m.tiles.every((q) => q.l >= 0 && q.r <= m.cw), tag + ': tile outside [0, clientWidth]');
++        ok(m.tiles.every((q) => inside(q, m.well)), tag + ': tile outside well');
++        ok(inside(m.well, m.fr), tag + ': well outside frame');
++        ok(Math.abs((m.board.l - m.well.l) - (m.well.r - m.board.r)) <= 1, `${tag}: board not centred in well (${(m.board.l - m.well.l).toFixed(1)} vs ${(m.well.r - m.board.r).toFixed(1)})`);
++        await shot(page, dir, `${r}x${c}-${w}.png`);
+       }
+     }
+   });
+ 
++  // look: AC1, AC3, D3 (#7). Computed-style and geometry assertions on the Pussycat look.
++  await run('look', async ({ page, dir, say }) => {
++    const html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
++    const css = (html.match(/<style>([\s\S]*?)<\/style>/) || ['', ''])[1];
++    ok(css.includes('container-type: inline-size'), 'style lacks container-type: inline-size');
++    ok(css.includes('100cqi'), 'style lacks 100cqi');
++    for (const bad of ['repeat(3', '90px', '100vw', '--rows']) ok(!css.includes(bad), 'style contains ' + bad);
++    say('style greps ok: container-type, 100cqi; no repeat(3, 90px, 100vw, --rows');
++    for (const [w, h] of VIEWS) {
++      await page.setViewportSize({ width: w, height: h });
++      for (const [r, c] of SIZES) {
++        await setSizeUI(page, r, c);
++        const tag = `${w}x${h} ${r}x${c}`;
++        const frC = await colours(page, '.frame'), wlC = await colours(page, '.well'), tlC = await colours(page, '.tile:not(.empty)'), emC = await colours(page, '.tile.empty');
++        nonVacuous(frC, tag + ' frame', say); nonVacuous(wlC, tag + ' well', say); nonVacuous(tlC, tag + ' tile', say); nonVacuous(emC, tag + ' empty', say);
++        ok(frC.every((x) => maxc(x) <= 48), tag + ': frame not black');
++        ok(parseFloat(await style(page, '.frame', 'borderTopLeftRadius')) >= 8, tag + ': frame radius < 8px');
++        ok((await style(page, '.frame', 'boxShadow')).includes('inset'), tag + ': frame has no inset highlight');
++        const fr = await rect(page, '.frame'), wl = await rect(page, '.well'), bd = await rect(page, '#board');
++        if (w >= 560) {
++          ok(fr.w - wl.w >= 100, `${tag}: frame-well width ${fr.w - wl.w} < 100`);
++          const off = Math.abs((wl.l - fr.l) - (fr.r - wl.r));
++          ok(off >= 60, `${tag}: well not off-centre (${off})`);
++        }
++        ok(wlC.every((x) => maxc(x) <= Math.min(...frC.map(maxc))), tag + ': well not darker than frame');
++        ok((await style(page, '.well', 'boxShadow')).includes('inset'), tag + ': well not recessed');
++        ok(inside(bd, wl), tag + ': board outside well');
++        ok(tlC.every(([R, G, B]) => R >= 200 && G >= 190 && B >= 160 && R >= B), tag + ': tile not cream');
++        ok((await style(page, '.tile:not(.empty)', 'boxShadow')) !== 'none', tag + ': tile has no bevel');
++        ok(parseFloat(await style(page, '#board', 'columnGap')) <= 4 && parseFloat(await style(page, '#board', 'rowGap')) <= 4, tag + ': gap > 4px');
++        ok(Number(await style(page, '.tile:not(.empty)', 'fontWeight')) >= 700, tag + ': tile font-weight < 700');
++        ok((await style(page, '.tile:not(.empty)', 'fontFamily')).includes('Rounded'), tag + ': tile font not rounded');
++        ok(emC.every((x) => maxc(x) <= 32), tag + ': empty tile not dark');
++        ok((await style(page, '.tile.empty', 'boxShadow')).includes('inset'), tag + ': empty tile not recessed');
++        const bdC = await colours(page, 'body'), shC = await colours(page, '#shuffle');
++        nonVacuous(bdC, tag + ' body', say); nonVacuous(shC, tag + ' #shuffle', say);
++        ok(bdC.every((x) => maxc(x) - Math.min(...x) <= 16 && lum(x) >= 0.40 && lum(x) <= 0.85), tag + ': body not neutral tabletop');
++        ok(shC.every((x) => maxc(x) <= 64), tag + ': #shuffle not dark plastic');
++        ok(rgbOf(await style(page, '#shuffle', 'color')).every((v) => v >= 230), tag + ': #shuffle text not white');
++        for (const sel of ['#moves', '#timer', '#shuffle', '#rows', '#cols']) ok(!overlap(await rect(page, sel), fr), `${tag}: ${sel} intersects frame`);
++        await shot(page, dir, `${r}x${c}-${w}.png`);
++      }
++    }
++    // Real solve at 1280x800 so #message shows.
++    await page.setViewportSize({ width: 1280, height: 800 });
++    await setSizeUI(page, 3, 3);
++    await click(page, 7);
++    await click(page, 8);
++    ok(await page.isVisible('#message'), 'message not visible after solve');
++    const frame = await rect(page, '.frame');
++    ok(!overlap(await rect(page, '#message'), frame), 'message intersects frame');
++    for (const sel of ['#shuffle', '#moves', '#timer', '#message', '#rows', '#cols']) {
++      const cl = [rgbOf(await style(page, sel, 'color')), ...(await colours(page, sel))];
++      ok(!cl.some(isGreen), `${sel} has a green colour: ${JSON.stringify(cl)}`);
++      say(`${sel} not green: ${JSON.stringify(cl)}`);
++    }
++    await shot(page, dir, 'solved-1280.png');
++  });
++
++  // layout-scrollbar: AC5 / D3 (#7). A classic scrollbar must not push tiles out of the well.
++  {
++    const name = 'layout-scrollbar';
++    const dir = path.join(OUT, name);
++    fs.rmSync(dir, { recursive: true, force: true });
++    fs.mkdirSync(dir, { recursive: true });
++    const log = [];
++    const sb = await chromium.launch({ channel: 'chrome', headless: true, ignoreDefaultArgs: ['--hide-scrollbars'] });
++    try {
++      for (const [w, h] of [[360, 480], [360, 740], [560, 800]]) {
++        const ctx = await sb.newContext({ viewport: { width: w, height: h } });
++        const page = await ctx.newPage();
++        page.on('request', (r) => requests.push(r.url()));
++        page.on('pageerror', (e) => errors.push('pageerror: ' + e.message));
++        page.on('console', (m) => { if (m.type() === 'error') errors.push('console: ' + m.text()); });
++        await page.goto(PAGE_URL);
++        await page.addStyleTag({ content: 'html{overflow-y:scroll}' });
++        await setSizeUI(page, 6, 6);
++        const m = await page.evaluate(() => {
++          const rc = (e) => { const q = e.getBoundingClientRect(); return { l: q.left, r: q.right, t: q.top, b: q.bottom }; };
++          return { cw: document.documentElement.clientWidth, iw: window.innerWidth, sw: document.documentElement.scrollWidth, fr: rc(document.getElementById('frame')), well: rc(document.querySelector('.well')), tiles: [...document.querySelectorAll('.tile')].map(rc) };
++        });
++        const tag = `${w}x${h} 6x6`;
++        log.push(`${tag}: ${JSON.stringify({ cw: m.cw, iw: m.iw, sw: m.sw, tile: (m.tiles[0].r - m.tiles[0].l).toFixed(1) })}`);
++        await shot(page, dir, `6x6-${w}x${h}.png`);
++        await ctx.close();
++        ok(m.cw < m.iw, tag + ': no classic scrollbar; pass not meaningful');
++        ok(m.sw <= m.cw, `${tag}: horizontal scroll ${m.sw} > ${m.cw}`);
++        ok(m.tiles.every((q) => inside(q, m.well)), tag + ': tile outside well');
++        ok(inside(m.well, m.fr), tag + ': well outside frame');
++        ok(m.fr.l >= 0 && m.fr.r <= m.cw, tag + ': frame outside [0, clientWidth]');
++      }
++      lines.push('PASS ' + name);
++    } catch (e) {
++      failed = true;
++      lines.push(`FAIL ${name}: ${e.message}`);
++    } finally {
++      await sb.close();
++      fs.writeFileSync(path.join(dir, 'output.txt'), log.join('\n') + '\n');
++    }
++  }
++
+   await run('code-shape', async ({ say }) => {
+     const html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
+     for (const f of ['render', 'move', 'setSize', 'shuffle', 'isSolvable', 'isSolved', 'checkWin']) {
+@@ -694,7 +851,7 @@ async function main() {
+     eq(bad, [], 'files outside index.html and test-results/**');
+     ok(changed.has('index.html'), 'index.html not in change set');
+     const html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
+-    const pats = { 'src=': /src=/, 'href= (not #)': /href=(?!["']#)/, '@import': /@import/, 'url(': /url\(/, 'type="module"': /type="module"/, 'fetch(': /fetch\(/, XMLHttpRequest: /XMLHttpRequest/ };
++    const pats = { 'src=': /src=/, 'href= (not #)': /href=(?!["']#)/, '@import': /@import/, 'url(': /url\(/, 'type="module"': /type="module"/, 'fetch(': /fetch\(/, XMLHttpRequest: /XMLHttpRequest/, '@font-face': /@font-face/, '<link': /<link/ };
+     for (const [k, re] of Object.entries(pats)) {
+       const n = (html.match(new RegExp(re.source, 'g')) || []).length;
+       say(`grep ${k}: ${n} matches`);
+@@ -702,6 +859,41 @@ async function main() {
+     }
+   }, { shoot: false });
+ 
++  // script-unchanged: D6, AC4 (#7). The <script> text is the merge base's, apart from the allowed presentation-only lines.
++  await run('script-unchanged', async ({ say }) => {
++    const scripts = (h) => [...h.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/gi)].map((m) => m[1]);
++    const baseHtml = execSync(`git show ${BASE}:index.html`, { encoding: 'utf8', maxBuffer: 1 << 26 });
++    const nowHtml = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
++    const a = scripts(baseHtml), b = scripts(nowHtml);
++    eq(b.length, a.length, 'script element count');
++    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'shuffle-script-'));
++    const fa = path.join(tmp, 'base.js'), fb = path.join(tmp, 'now.js');
++    fs.writeFileSync(fa, a.join('\n').replace(/\r\n/g, '\n'));
++    fs.writeFileSync(fb, b.join('\n').replace(/\r\n/g, '\n'));
++    const diff = spawnSync('git', ['diff', '--no-index', '-U0', fa, fb], { encoding: 'utf8', maxBuffer: 1 << 26 });
++    ok(diff.status === 0 || diff.status === 1, `git diff --no-index failed with status ${diff.status}`);
++    const d = diff.stdout;
++    fs.rmSync(tmp, { recursive: true, force: true });
++    const changed = d.split(/\r?\n/).filter((l) => l && !/^(diff |index |--- |\+\+\+ |@@|\\ )/.test(l));
++    say(`script elements: ${a.length}; changed lines: ${changed.length}`);
++    changed.forEach((l) => say('changed: ' + l));
++    const addOk = /^\+\s*board\.style\.setProperty\('--cols', cols\);\s*$/;
++    const delOk = /^-\s*[\w.]+\.style\.(width|height|fontSize|gridTemplateColumns|gridTemplateRows)\s*=\s*[^;]+;\s*$/;
++    for (const l of changed) ok((l[0] === '+' && addOk.test(l)) || (l[0] === '-' && delOk.test(l)), 'disallowed script change: ' + l);
++    const markup = nowHtml.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '');
++    const handlers = (markup.match(/<[^>]*\son[a-z]+\s*=/gi) || []).length;
++    say('inline handlers in markup: ' + handlers);
++    eq(handlers, 0, 'inline on*= handlers');
++  }, { shoot: false });
++
++  // no-external-requests: AC6 (#7). Every request over every page the driver opened is index.html itself.
++  await run('no-external-requests', async ({ say }) => {
++    const uniq = [...new Set(requests.map((u) => u.split('?')[0].split('#')[0]))];
++    say('requests: ' + requests.length + '; distinct urls: ' + JSON.stringify(uniq));
++    ok(requests.length > 0, 'no requests captured');
++    eq(uniq.filter((u) => u !== PAGE_URL), [], 'urls other than index.html');
++  }, { shoot: false });
++
+   await run('console', async ({ say }) => {
+     say(`errors collected: ${errors.length}`);
+     errors.forEach((e) => say(e));
