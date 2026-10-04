@@ -1,0 +1,16 @@
+3x3: 9 tiles, 3 columns, 3 rows, solved, moves 0, timer 0s, message hidden
+3x4: 12 tiles, 4 columns, 3 rows, solved, moves 0, timer 0s, message hidden
+3x5: 15 tiles, 5 columns, 3 rows, solved, moves 0, timer 0s, message hidden
+3x6: 18 tiles, 6 columns, 3 rows, solved, moves 0, timer 0s, message hidden
+4x3: 12 tiles, 3 columns, 4 rows, solved, moves 0, timer 0s, message hidden
+4x4: 16 tiles, 4 columns, 4 rows, solved, moves 0, timer 0s, message hidden
+4x5: 20 tiles, 5 columns, 4 rows, solved, moves 0, timer 0s, message hidden
+4x6: 24 tiles, 6 columns, 4 rows, solved, moves 0, timer 0s, message hidden
+5x3: 15 tiles, 3 columns, 5 rows, solved, moves 0, timer 0s, message hidden
+5x4: 20 tiles, 4 columns, 5 rows, solved, moves 0, timer 0s, message hidden
+5x5: 25 tiles, 5 columns, 5 rows, solved, moves 0, timer 0s, message hidden
+5x6: 30 tiles, 6 columns, 5 rows, solved, moves 0, timer 0s, message hidden
+6x3: 18 tiles, 3 columns, 6 rows, solved, moves 0, timer 0s, message hidden
+6x4: 24 tiles, 4 columns, 6 rows, solved, moves 0, timer 0s, message hidden
+6x5: 30 tiles, 5 columns, 6 rows, solved, moves 0, timer 0s, message hidden
+6x6: 36 tiles, 6 columns, 6 rows, solved, moves 0, timer 0s, message hidden
