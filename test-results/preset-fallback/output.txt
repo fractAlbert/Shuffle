@@ -1,0 +1,5 @@
+(a) file://: note "Preset pictures need Shuffle served over HTTP (see README).", row hidden, numbers 4x4 and own file work
+(b) 404: note "No preset pictures found.", row hidden, numbers 4x4 and own file work
+(c) no links: note "No preset pictures found.", row hidden, numbers 4x4 and own file work
+(d) empty: note "No preset pictures found.", row hidden, numbers 4x4 and own file work
+(e) delayed listing: Numbers 4x4 started at once; the late listing changed nothing

@@ -1,9 +1,11 @@
-// Verification driver (test tooling, not app code). See plan section 6 of issues #1, #2, #3, #4, #5 and #7.
+// Verification driver (test tooling, not app code). See plan section 6 of issues #1, #2, #3, #4, #5, #7 and #13.
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const url = require('url');
-const { execSync, spawnSync } = require('child_process');
+const net = require('net');
+const http = require('http');
+const { execSync, spawnSync, spawn } = require('child_process');
 if (!process.env.PW_DIR) { console.error('Set PW_DIR to the playwright package directory (see plan section 6).'); process.exit(2); }
 const { chromium } = require(process.env.PW_DIR);
 
@@ -245,22 +247,122 @@ async function expectCrop(page, fx, r, c, z, cx, cy, tag, say) {
   say(`${tag}: crop sx ${o.sx.toFixed(1)} sy ${o.sy.toFixed(1)} cw ${o.cw.toFixed(1)} ch ${o.ch.toFixed(1)}; preview error ${worstPrev.toFixed(2)}px; ${pc.count} pieces, worst error ${pc.worst.toFixed(2)}px`);
 }
 
+// ---- #13 helpers. The real `python -m http.server` serves the repo root and the fixture roots; a canned Node server is used only for hostile, delayed and redirecting listings. ----
+// Expectations below come from plan #13 sections 2 (D2, D7) and 6, never from the app's code.
+const R1 = /\.(jpe?g|png|webp|gif|avif)$/i;
+const stemOf = (f) => f.replace(/\.[^.]+$/, '');
+const driverOrigins = new Set();
+const pyServers = [];
+const cannedServers = [];
+const expectedConsole = [];
+let tmpRoot = null;
+// Register a console error that a check provokes on purpose: its location URL and the start of its text.
+const expectConsole = (u, prefix = 'Failed to load resource: the server responded with a status of 404') => expectedConsole.push({ url: u, prefix });
+const httpGet = (u) => new Promise((resolve, reject) => {
+  http.get(u, (res) => {
+    const chunks = [];
+    res.on('data', (d) => chunks.push(d));
+    res.on('end', () => resolve({ status: res.statusCode, body: Buffer.concat(chunks).toString('utf8') }));
+  }).on('error', reject);
+});
+const freePort = () => new Promise((resolve, reject) => {
+  const s = net.createServer();
+  s.on('error', reject);
+  s.listen(0, '127.0.0.1', () => { const p = s.address().port; s.close(() => resolve(p)); });
+});
+// Start python -m http.server over root on a free port; ready only when the root-specific probe holds (10 s limit).
+async function serve(root, probe) {
+  const port = await freePort();
+  const proc = spawn(process.env.PYTHON || 'python', ['-u', '-m', 'http.server', String(port), '--bind', '127.0.0.1', '--directory', root], { stdio: ['ignore', 'ignore', 'pipe'] });
+  const srv = { root, port, origin: `http://127.0.0.1:${port}`, proc, stderr: '', log: [], exited: false };
+  srv.exitP = new Promise((resolve) => proc.once('exit', () => { srv.exited = true; resolve(); }));
+  let pending = '';
+  proc.stderr.on('data', (d) => {
+    srv.stderr += d;
+    pending += d;
+    const parts = pending.split(/\r?\n/);
+    pending = parts.pop();
+    for (const ln of parts) { const m = ln.match(/"GET (\S+) HTTP\/[\d.]+" (\d+)/); if (m) srv.log.push({ path: m[1], code: Number(m[2]) }); }
+  });
+  srv.stop = () => { if (!srv.exited) proc.kill(); return srv.exitP; };
+  pyServers.push(srv);
+  driverOrigins.add(srv.origin);
+  const t0 = Date.now();
+  for (;;) {
+    let good = false;
+    try { good = await probe(srv.origin); } catch (_) { good = false; }
+    if (good) return srv;
+    if (Date.now() - t0 > 10000) { await srv.stop(); throw new Error(`server for ${root} not ready within 10 s; stderr: ${srv.stderr.slice(-400)}`); }
+    await sleep(150);
+  }
+}
+// The canned server: working-tree index.html, a scripted /images/ (cs.listing(n) gives status, body, delay, headers), /images/ok.png, 404 otherwise.
+async function canned(okBytes) {
+  const cs = { requests: [], count: 0, listing: () => ({ status: 404, body: '' }) };
+  cs.server = http.createServer((req, res) => {
+    const p = req.url.split('?')[0];
+    cs.requests.push(p);
+    if (p === '/' || p === '/index.html') { res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' }); res.end(fs.readFileSync(path.join(ROOT, 'index.html'))); return; }
+    if (p === '/images/') {
+      const r = cs.listing(++cs.count);
+      setTimeout(() => { res.writeHead(r.status || 200, { 'Content-Type': 'text/html; charset=utf-8', ...(r.headers || {}) }); res.end(r.body || ''); }, r.delay || 0);
+      return;
+    }
+    if (p === '/images/ok.png') { res.writeHead(200, { 'Content-Type': 'image/png' }); res.end(okBytes); return; }
+    res.writeHead(404, { 'Content-Type': 'text/plain' });
+    res.end('not found');
+  });
+  await new Promise((resolve) => cs.server.listen(0, '127.0.0.1', resolve));
+  cs.origin = `http://127.0.0.1:${cs.server.address().port}`;
+  driverOrigins.add(cs.origin);
+  cannedServers.push(cs);
+  return cs;
+}
+// A directory-listing page with one link per href.
+const listingPage = (hrefs) => '<!DOCTYPE html><html><body><ul>' + hrefs.map((h) => `<li><a href="${h}">${h}</a></li>`).join('') + '</ul></body></html>';
+// Stop every server (awaiting each exit), then remove the temp roots.
+async function stopAll() {
+  for (const c of cannedServers) { if (c.server.closeAllConnections) c.server.closeAllConnections(); await new Promise((resolve) => c.server.close(resolve)); }
+  cannedServers.length = 0;
+  await Promise.all(pyServers.map((s) => s.stop()));
+  if (tmpRoot) { fs.rmSync(tmpRoot, { recursive: true, force: true, maxRetries: 5 }); tmpRoot = null; }
+}
+// Last resort on any exit, including a crash: kill survivors and remove the temp root.
+process.on('exit', () => {
+  for (const s of pyServers) { try { s.proc.kill(); } catch (_) { /* already gone */ } }
+  if (tmpRoot) { try { fs.rmSync(tmpRoot, { recursive: true, force: true, maxRetries: 5 }); } catch (_) { /* best effort */ } }
+});
+const presetRowVisible = (pg) => pg.waitForSelector('#preset-row', { state: 'visible' });
+const presetOptions = (pg) => pg.$$eval('#preset option', (opts) => opts.map((o) => ({ text: o.textContent, value: o.value })).filter((o) => o.value !== ''));
+const presetNames = async (pg) => (await presetOptions(pg)).map((o) => o.text);
+const countLog = (srv, p) => srv.log.filter((e) => e.path === p).length;
+// Open New on an HTTP page, wait for the Picture row, set the size, pick the preset by its label and Start; waits for the crop dialog.
+const newPresetUI = async (pg, r, c, label) => {
+  await pg.click('#new');
+  await presetRowVisible(pg);
+  await pg.selectOption('#rows', String(r));
+  await pg.selectOption('#cols', String(c));
+  await pg.selectOption('#preset', { label });
+  await pg.click('#new-start');
+  await pg.waitForSelector('#crop-dialog[open]');
+};
+
 async function main() {
   const browser = await chromium.launch({ channel: 'chrome', headless: true });
   const tmpVideo = fs.mkdtempSync(path.join(os.tmpdir(), 'shuffle-video-'));
   await makeFixtures(browser);
 
-  async function newPage(opts = {}) {
+  async function newPage(opts = {}, pageUrl = PAGE_URL) {
     const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 }, ...opts });
     const page = await ctx.newPage();
     page.on('request', (r) => requests.push(r.url()));
-    page.on('pageerror', (e) => errors.push('pageerror: ' + e.message));
-    page.on('console', (m) => { if (m.type() === 'error') errors.push('console: ' + m.text()); });
-    await page.goto(PAGE_URL);
+    page.on('pageerror', (e) => errors.push({ text: 'pageerror: ' + e.message, url: '' }));
+    page.on('console', (m) => { if (m.type() === 'error') errors.push({ text: 'console: ' + m.text(), url: m.location().url }); });
+    await page.goto(pageUrl);
     return { ctx, page };
   }
 
-  async function run(name, fn, { video = false, shoot = true } = {}) {
+  async function run(name, fn, { video = false, shoot = true, url: pageUrl = PAGE_URL } = {}) {
     const dir = path.join(OUT, name);
     fs.rmSync(dir, { recursive: true, force: true });
     fs.mkdirSync(dir, { recursive: true });
@@ -268,7 +370,7 @@ async function main() {
     const say = (s) => log.push(s);
     let ctx, page;
     try {
-      ({ ctx, page } = await newPage(video ? { recordVideo: { dir: tmpVideo, size: { width: 1280, height: 800 } } } : {}));
+      ({ ctx, page } = await newPage(video ? { recordVideo: { dir: tmpVideo, size: { width: 1280, height: 800 } } } : {}, pageUrl));
       await fn({ page, dir, say });
       lines.push(`PASS ${name}`);
     } catch (e) {
@@ -707,8 +809,8 @@ async function main() {
         const ctx = await sb.newContext({ viewport: { width: w, height: h } });
         const page = await ctx.newPage();
         page.on('request', (r) => requests.push(r.url()));
-        page.on('pageerror', (e) => errors.push('pageerror: ' + e.message));
-        page.on('console', (m) => { if (m.type() === 'error') errors.push('console: ' + m.text()); });
+        page.on('pageerror', (e) => errors.push({ text: 'pageerror: ' + e.message, url: '' }));
+        page.on('console', (m) => { if (m.type() === 'error') errors.push({ text: 'console: ' + m.text(), url: m.location().url }); });
         await page.goto(PAGE_URL);
         await page.addStyleTag({ content: 'html{overflow-y:scroll}' });
         await setSizeUI(page, 6, 6);
@@ -738,7 +840,7 @@ async function main() {
 
   await run('code-shape', async ({ say }) => {
     const html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
-    for (const f of ['render', 'move', 'setSize', 'shuffle', 'isSolvable', 'isSolved', 'checkWin', 'openNew', 'startNew', 'onDecoded', 'onRejected', 'cropRect', 'openCrop', 'drawCrop', 'moveCrop', 'cutImage', 'cropDone']) {
+    for (const f of ['render', 'move', 'setSize', 'shuffle', 'isSolvable', 'isSolved', 'checkWin', 'openNew', 'startNew', 'onDecoded', 'onRejected', 'cropRect', 'openCrop', 'drawCrop', 'moveCrop', 'cutImage', 'cropDone', 'loadPresets', 'parseListing', 'onListed']) {
       const re = new RegExp('//[^\\n]*\\r?\\n\\s*function ' + f + '\\b');
       ok(re.test(html), `function ${f} missing or has no comment above`);
       say(`function ${f}: present with comment`);
@@ -1452,7 +1554,7 @@ async function main() {
       const greens = all.flatMap((e) => { const cs = getComputedStyle(e); return [['color', cs.color], ['background', cs.backgroundColor]].map(([k, v]) => ({ name: e.tagName + (e.id ? '#' + e.id : '') + ' ' + k, c: nums(v) })); }).filter((x) => x.c.length === 3 && x.c[1] > x.c[0] + 20 && x.c[1] > x.c[2] + 20).map((x) => x.name);
       return {
         d: rc(d), sw: d.scrollWidth, cw: d.clientWidth, docCw: document.documentElement.clientWidth, ih: window.innerHeight,
-        controls: [...d.querySelectorAll('button, select')].map((e) => ({ name: e.id, box: rc(e) })),
+        controls: [...d.querySelectorAll('button, select')].filter((e) => e.getClientRects().length > 0).map((e) => ({ name: e.id, box: rc(e) })),
         view: withView ? rc(d.querySelector('#crop-view')) : null, leaves, greens,
       };
     }, [sel, withView]);
@@ -1490,9 +1592,513 @@ async function main() {
     }
   });
 
+  // ---- #13 preset pictures. Servers start one after another; every one is stopped before the run ends. ----
+  const S = {};
+  let srvErr = null;
+  let cn = null;
+  const realFiles = fs.readdirSync(path.join(ROOT, 'images')).filter((f) => R1.test(f));
+  const A_NAMES = ['Grad – Landscape ’1’', 'portrait', 'Plain', 'Shot', 'Anim', 'Next', 'UPPER', '50% #1', "Bust (detail) 'x'", 'broken'];
+  const A_IGNORED = ['notes', 'readme', 'noext', 'archive.jpg', '.hidden', 'sub', 'inner'];
+  try {
+    tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'shuffle-http-'));
+    const indexBytes = fs.readFileSync(path.join(ROOT, 'index.html'));
+    const put = (root, rel, bytes) => { const f = path.join(tmpRoot, root, rel); fs.mkdirSync(path.dirname(f), { recursive: true }); fs.writeFileSync(f, bytes); };
+    for (const r of ['A', 'B', 'C', 'D']) put(r, 'index.html', indexBytes);
+    ok(Buffer.compare(fs.readFileSync(path.join(tmpRoot, 'A', 'index.html')), indexBytes) === 0, 'A/index.html is not a byte copy');
+    put('A', 'images/Grad – Landscape ’1’.png', FIX['landscape.png'].buffer);
+    put('A', 'images/portrait.PNG', FIX['portrait.png'].buffer);
+    for (const f of ['Plain.jpeg', 'Shot.WEBP', 'Anim.gif', 'Next.avif', 'UPPER.JPG', '50% #1.png', "Bust (detail) 'x'.jpg"]) put('A', 'images/' + f, 'placeholder, listed but never decoded');
+    put('A', 'images/broken.jpg', 'hello');
+    for (const f of ['notes.txt', 'readme.md', 'noext', 'archive.jpg.zip', '.hidden.txt', 'sub/inner.png']) put('A', 'images/' + f, 'ignored');
+    put('C', 'images/index.html', '<p>no listing</p>');
+    fs.mkdirSync(path.join(tmpRoot, 'D', 'images'), { recursive: true });
+    const frag = (realFiles[0] || 'x').match(/[A-Za-z]{4,}/)[0];
+    S.real = await serve(ROOT, async (o) => { const r = await httpGet(o + '/images/'); return r.status === 200 && r.body.includes(frag); });
+    S.a = await serve(path.join(tmpRoot, 'A'), async (o) => { const r = await httpGet(o + '/images/'); return r.status === 200 && r.body.includes('portrait'); });
+    S.b = await serve(path.join(tmpRoot, 'B'), async (o) => (await httpGet(o + '/images/')).status === 404);
+    S.c = await serve(path.join(tmpRoot, 'C'), async (o) => (await httpGet(o + '/images/')).body.includes('no listing'));
+    S.d = await serve(path.join(tmpRoot, 'D'), async (o) => { const r = await httpGet(o + '/images/'); return r.status === 200 && !r.body.includes('<li>'); });
+    cn = await canned(FIX['landscape.png'].buffer);
+  } catch (e) {
+    srvErr = e.message;
+  }
+  const need = () => { if (srvErr) throw new Error('fixture servers failed to start: ' + srvErr); };
+  const U = (s) => (s ? s.origin + '/' : undefined);
+  const withPage = async (pageUrl, fn, opts = {}) => {
+    const g = await newPage(opts, pageUrl);
+    try { return await fn(g.page); } finally { await g.ctx.close(); }
+  };
+  const nums = async (pg) => (await imgBoard(pg)).map((x) => (x === '_' ? 0 : Number(x)));
+
+  // preset-list: AC1, R1, R2. The New dialog lists every recognised image of images/, named from the file, and nothing else.
+  await run('preset-list', async ({ page, dir, say }) => {
+    need();
+    ok(realFiles.length >= 1, 'images/ holds no recognised image');
+    const wantReal = realFiles.map(stemOf).sort();
+    for (const p of ['/', '/index.html']) {
+      await page.goto(S.real.origin + p);
+      await page.click('#new');
+      await presetRowVisible(page);
+      const opts = await presetOptions(page);
+      eq(opts.map((o) => o.text).sort(), wantReal, `REAL ${p} names`);
+      for (const o of opts) {
+        const file = realFiles.find((f) => stemOf(f) === o.text);
+        eq(decodeURIComponent(new URL(o.value).pathname), '/images/' + file, `REAL ${p} value for ${o.text}`);
+      }
+      ok(await page.$eval('#preset-note', (e) => e.hidden), `REAL ${p}: note visible`);
+      ok(await page.isChecked('#kind-numbers'), `REAL ${p}: listing changed the tile kind`);
+      say(`REAL ${p}: ${opts.length} options: ${JSON.stringify(opts.map((o) => o.text))}`);
+      if (p === '/') await shot(page, dir, 'screenshot.png');
+      await page.click('#new-cancel');
+    }
+    await page.goto(S.a.origin + '/');
+    await page.click('#new');
+    await presetRowVisible(page);
+    const names = await presetNames(page);
+    eq([...names].sort(), [...A_NAMES].sort(), 'A names');
+    eq(names, [...names].sort((x, y) => x.localeCompare(y)), 'A options sorted by name');
+    for (const bad of A_IGNORED) ok(!names.includes(bad), `A lists ignored entry ${bad}`);
+    ok(await page.$eval('#preset-note', (e) => e.hidden), 'A: note visible');
+    ok(await page.isChecked('#kind-numbers'), 'A: listing changed the tile kind');
+    say('A names: ' + JSON.stringify(names));
+    await shot(page, dir, 'fixtures-dialog.png');
+  }, { url: U(S.real) });
+
+  // preset-refresh: AC2. A file added to images/ is listed the next time New opens, without a reload.
+  await run('preset-refresh', async ({ page, say }) => {
+    need();
+    const fresh = path.join(tmpRoot, 'A', 'images', 'Fresh – Añadida.png');
+    try {
+      await page.evaluate(() => { window.__mark = 1; });
+      let n0 = countLog(S.a, '/images/');
+      await page.click('#new');
+      await presetRowVisible(page);
+      const before = await presetNames(page);
+      await page.click('#new-cancel');
+      await sleep(200);
+      eq(countLog(S.a, '/images/') - n0, 1, 'listing requests for the first open');
+      ok(!before.includes('Fresh – Añadida'), 'fresh name listed before it exists');
+      fs.writeFileSync(fresh, FIX['landscape.png'].buffer);
+      n0 = countLog(S.a, '/images/');
+      await page.click('#new');
+      await page.waitForFunction(() => [...document.querySelectorAll('#preset option')].some((o) => o.textContent === 'Fresh – Añadida'));
+      eq(await page.evaluate(() => window.__mark), 1, 'page reloaded (marker lost)');
+      await page.selectOption('#preset', { label: 'Fresh – Añadida' });
+      await page.click('#new-start');
+      await page.waitForSelector('#crop-dialog[open]');
+      await page.click('#crop-cancel');
+      eq(countLog(S.a, '/images/') - n0, 1, 'listing requests for the second open');
+      say('fresh file listed on the next open, no reload, crop dialog opened (it decodes)');
+      fs.rmSync(fresh);
+      n0 = countLog(S.a, '/images/');
+      await page.click('#new');
+      await presetRowVisible(page);
+      const after = await presetNames(page);
+      await page.click('#new-cancel');
+      await sleep(200);
+      ok(!after.includes('Fresh – Añadida'), 'deleted file still listed');
+      eq(countLog(S.a, '/images/') - n0, 1, 'listing requests for the third open');
+      eq([...after].sort(), [...A_NAMES].sort(), 'names after deleting');
+      say('deleted file gone on the next open; one GET /images/ per open');
+    } finally {
+      fs.rmSync(fresh, { force: true });
+    }
+  }, { url: U(S.a) });
+
+  // preset-play: AC3. A preset goes through the crop dialog and plays as an own file does (video).
+  await run('preset-play', async ({ page, dir, say }) => {
+    need();
+    const land = FIX['landscape.png'], port = FIX['portrait.png'];
+    const NAME_L = 'Grad – Landscape ’1’';
+    await newPresetUI(page, 3, 3, NAME_L);
+    await expectCrop(page, land, 3, 3, 1, 300, 200, 'A 3x3 preset', say);
+    const info = await page.$$eval('#board .tile.image', (els) => els.map((e) => ({ inner: e.textContent, kids: [...e.children].map((k) => k.tagName), aria: e.getAttribute('aria-label') })));
+    eq(info.length, 8, 'image tile count');
+    for (const t of info) { eq(t.inner, '', t.aria + ' text'); eq(t.kids, ['CANVAS'], t.aria + ' children'); ok(/^Tile \d+$/.test(t.aria), 'aria-label ' + t.aria); }
+    eq(await page.$$eval('#board canvas', (e) => e.length), 8, 'canvas count');
+    eq(await movesOf(page), 0, 'moves after Done');
+    eq(await timerOf(page), 0, 'timer after Done');
+    ok(await page.$eval('#message', (e) => e.hidden), 'message visible after Done');
+    const o = cropOracle(land.W, land.H, 3, 3, 1, 300, 200);
+    for (let k = 0; k < 5; k++) {
+      await page.click('#shuffle');
+      const b = await nums(page);
+      ok(oracleSolvable(b, 3, 3), `shuffle ${k + 1}: board not solvable ${b}`);
+      ok(b.join() !== SOLVED3, `shuffle ${k + 1}: board solved`);
+      await expectPieces(page, land, 3, 3, o, `shuffle ${k + 1}`);
+    }
+    const e0 = (await nums(page)).indexOf(0);
+    await click(page, e0 % 3 > 0 ? e0 - 1 : e0 + 1);
+    eq(await movesOf(page), 1, 'moves after one slide');
+    say('3x3 preset: crop at the oracle, no numbers, 5 shuffles solvable with pieces home, one slide counted');
+    await newPresetUI(page, 3, 6, 'portrait');
+    await setZoom(page, 2);
+    const v = await rect(page, '#crop-view');
+    await dragView(page, -2 * v.w, -2 * v.h);
+    await expectCrop(page, port, 3, 6, 2, 300, 500, 'A 3x6 portrait zoom 2 drag -2 clamps', say);
+    await page.goto(S.real.origin + '/');
+    const hok = realFiles.map(stemOf).find((n) => n.includes('Hokusai'));
+    ok(hok, 'no Hokusai preset in images/');
+    await newPresetUI(page, 4, 4, hok);
+    await cropDoneUI(page);
+    eq(await page.$$eval('#board .tile.image canvas', (e) => e.length), 15, 'REAL 4x4 canvases');
+    const colours15 = new Set((await pieceSample(page)).map((p) => p.rgb.join()));
+    ok(colours15.size >= 3, `REAL 4x4: only ${colours15.size} distinct tile centre colours`);
+    say(`REAL 4x4 ${hok}: 15 image tiles, ${colours15.size} distinct centre colours`);
+    await shot(page, dir, 'screenshot.png');
+    await page.goto(S.a.origin + '/');
+    await setSizeUI(page, 3, 3);
+    await click(page, 7);
+    const b0 = await board(page);
+    await sleep(1200);
+    const t1 = await timerOf(page);
+    ok(t1 >= 1, 'timer not running before the cancels');
+    for (const how of ['Cancel', 'Escape']) {
+      await newPresetUI(page, 3, 3, NAME_L);
+      if (how === 'Cancel') await page.click('#crop-cancel'); else await page.keyboard.press('Escape');
+      ok(!(await isOpen(page, 'crop-dialog')), how + ': crop dialog still open');
+      eq(await board(page), b0, how + ': board');
+      eq(await movesOf(page), 1, how + ': moves');
+      eq(await page.$$eval('#board canvas', (e) => e.length), 0, how + ': kind changed');
+    }
+    await sleep(1200);
+    ok((await timerOf(page)) >= t1 + 1, 'timer stopped counting');
+    await page.click('#new');
+    await presetRowVisible(page);
+    await page.selectOption('#cols', '4');
+    await page.selectOption('#rows', '4');
+    await page.selectOption('#preset', { label: NAME_L });
+    await page.check('#kind-numbers');
+    await page.click('#new-start');
+    await page.waitForFunction(() => !document.getElementById('new-dialog').open);
+    eq(await board(page), solvedBoard(16), 'Numbers with a preset selected');
+    eq(await page.$$eval('#board canvas', (e) => e.length), 0, 'Numbers with a preset: canvases');
+    say('Cancel and Escape on the crop leave the numbers game and a running timer alone; Numbers wins over a selected preset');
+  }, { video: true, url: U(S.a) });
+
+  // preset-own-file: AC4. Own files behave as in #3, and a preset and a file never both apply.
+  await run('preset-own-file', async ({ page, say }) => {
+    need();
+    const land = FIX['landscape.png'], port = FIX['portrait.png'];
+    await newImageUI(page, 3, 3, 'landscape.png');
+    await expectCrop(page, land, 3, 3, 1, 300, 200, 'own landscape 3x3', say);
+    await page.click('#new');
+    await presetRowVisible(page);
+    await page.selectOption('#rows', '3');
+    await page.selectOption('#cols', '3');
+    await page.selectOption('#preset', { label: 'portrait' });
+    ok(await page.isChecked('#kind-image'), 'choosing a preset did not select Image');
+    await page.setInputFiles('#image-file', { name: land.name, mimeType: land.mimeType, buffer: land.buffer });
+    eq(await page.$eval('#preset', (e) => e.value), '', 'preset after choosing a file');
+    await page.click('#new-start');
+    await page.waitForSelector('#crop-dialog[open]');
+    await expectCrop(page, land, 3, 3, 1, 300, 200, 'preset then file follows the file', say);
+    await page.click('#new');
+    await presetRowVisible(page);
+    await page.selectOption('#rows', '4');
+    await page.selectOption('#cols', '3');
+    await page.setInputFiles('#image-file', { name: land.name, mimeType: land.mimeType, buffer: land.buffer });
+    await page.selectOption('#preset', { label: 'portrait' });
+    eq(await page.$eval('#image-file', (e) => e.files.length), 0, 'file input after choosing a preset');
+    await page.click('#new-start');
+    await page.waitForSelector('#crop-dialog[open]');
+    await expectCrop(page, port, 4, 3, 1, 200, 300, 'file then preset follows the preset', say);
+    await page.click('#new');
+    await presetRowVisible(page);
+    ok(await page.isChecked('#kind-image'), 'reuse: Image not preselected');
+    eq(await page.$eval('#preset', (e) => e.value), '', 'reuse: preset not reset on open');
+    await page.click('#new-start');
+    await page.waitForSelector('#crop-dialog[open]');
+    await expectCrop(page, port, 4, 3, 1, 200, 300, 'reuse of the current image', say);
+  }, { url: U(S.a) });
+
+  // preset-fallback: AC5. On file://, or with no usable listing, the dialog degrades quietly.
+  await run('preset-fallback', async ({ page, dir, say }) => {
+    need();
+    const flow = async (pg, tag, note, shotName) => {
+      const before = errors.length;
+      await pg.click('#new');
+      await pg.waitForFunction((t) => !document.getElementById('preset-note').hidden && document.getElementById('preset-note').textContent === t, note);
+      ok(await pg.$eval('#preset-row', (e) => e.hidden), `${tag}: Picture row visible`);
+      eq(await pg.$$eval('#preset option', (o) => o.length), 1, `${tag}: options beyond the placeholder`);
+      await shot(pg, dir, shotName);
+      await pg.click('#new-cancel');
+      await setSizeUI(pg, 4, 4);
+      eq(await board(pg), solvedBoard(16), `${tag}: 4x4 numbers board`);
+      await newImageUI(pg, 4, 4);
+      await cropDoneUI(pg);
+      eq(await pg.$$eval('#board .tile.image', (e) => e.length), 15, `${tag}: image tiles`);
+      eq(errors.slice(before).filter((e) => e.text.startsWith('pageerror')), [], `${tag}: pageerror`);
+      say(`${tag}: note "${note}", row hidden, numbers 4x4 and own file work`);
+    };
+    const seen = [];
+    page.on('request', (r) => seen.push(r.url()));
+    await page.goto(PAGE_URL);
+    await flow(page, '(a) file://', 'Preset pictures need Shuffle served over HTTP (see README).', 'fallback-a-file.png');
+    eq(seen.filter((u) => u !== PAGE_URL && u !== 'data:,'), [], '(a) requests other than the page');
+    expectConsole(S.b.origin + '/images/');
+    const NONE = 'No preset pictures found.';
+    for (const [tag, srv, nm] of [['(b) 404', S.b, 'fallback-b-404.png'], ['(c) no links', S.c, 'fallback-c-nolinks.png'], ['(d) empty', S.d, 'fallback-d-empty.png']]) {
+      await withPage(srv.origin + '/', (pg) => flow(pg, tag, NONE, nm));
+    }
+    cn.count = 0;
+    cn.listing = () => ({ delay: 1500, body: listingPage(['late.png']) });
+    await withPage(cn.origin + '/', async (pg) => {
+      await pg.click('#new');
+      await pg.selectOption('#rows', '4');
+      await pg.selectOption('#cols', '4');
+      await pg.click('#new-start');
+      await pg.waitForFunction(() => !document.getElementById('new-dialog').open);
+      eq(await board(pg), solvedBoard(16), '(e) 4x4 board');
+      await sleep(2000);
+      ok(!(await isOpen(pg, 'new-dialog')), '(e) dialog reopened by the late listing');
+      eq(await board(pg), solvedBoard(16), '(e) board changed');
+      await shot(pg, dir, 'fallback-e-delayed.png');
+      say('(e) delayed listing: Numbers 4x4 started at once; the late listing changed nothing');
+    });
+  });
+
+  // preset-errors: R3. An undecodable or missing preset fails like an own file, and the decode races are safe.
+  await run('preset-errors', async ({ page, say }) => {
+    need();
+    const gone = path.join(tmpRoot, 'A', 'images', 'gone.png');
+    expectConsole(S.a.origin + '/images/gone.png');
+    try {
+      await page.click('#new');
+      await presetRowVisible(page);
+      await page.selectOption('#preset', { label: 'broken' });
+      await page.click('#new-start');
+      await page.waitForFunction(() => { const e = document.getElementById('new-error'); return !e.hidden && e.textContent.includes('not an image'); });
+      eq((await page.textContent('#new-error')).trim(), 'That file is not an image.', '(a) text');
+      ok(await isOpen(page, 'new-dialog'), '(a) dialog closed');
+      ok(await page.isEnabled('#new-start'), '(a) Start disabled');
+      eq(await board(page), SOLVED, '(a) board');
+      await page.selectOption('#preset', { label: 'portrait' });
+      await page.click('#new-start');
+      await page.waitForSelector('#crop-dialog[open]');
+      ok(await page.$eval('#new-error', (e) => e.hidden), '(a) error still shown after a good preset');
+      await page.click('#crop-cancel');
+      say('(a) broken: "That file is not an image.", dialog open, Start enabled; portrait afterwards opens the crop and clears the error');
+      fs.writeFileSync(gone, FIX['landscape.png'].buffer);
+      await page.click('#new');
+      await presetRowVisible(page);
+      fs.rmSync(gone);
+      await page.selectOption('#preset', { label: 'gone' });
+      await page.click('#new-start');
+      await page.waitForFunction(() => { const e = document.getElementById('new-error'); return !e.hidden && e.textContent.includes('not an image'); });
+      eq((await page.textContent('#new-error')).trim(), 'That file is not an image.', '(b) text');
+      ok(await page.isEnabled('#new-start'), '(b) Start disabled');
+      await page.click('#new-cancel');
+      say('(b) deleted between listing and Start: the same error');
+    } finally {
+      fs.rmSync(gone, { force: true });
+    }
+    const gated = async (fn) => {
+      const g = await newPage({}, S.a.origin + '/');
+      try {
+        await g.page.evaluate(() => {
+          window.__gate = [];
+          const real = window.createImageBitmap.bind(window);
+          window.createImageBitmap = (...a) => new Promise((resolve) => window.__gate.push(resolve)).then(() => real(...a));
+        });
+        await fn(g.page);
+      } finally {
+        await g.ctx.close();
+      }
+    };
+    const gateLen = (pg) => pg.evaluate(() => window.__gate.length);
+    const release = (pg) => pg.evaluate(() => { const r = window.__gate.shift(); if (r) r(); });
+    const waitGate = (pg, n) => pg.waitForFunction((k) => window.__gate.length === k, n);
+    const startPreset = async (pg, label) => {
+      await pg.click('#new');
+      await presetRowVisible(pg);
+      await pg.selectOption('#preset', { label });
+      await pg.click('#new-start');
+    };
+    await gated(async (pg) => {
+      await click(pg, 7);
+      const b0 = await board(pg);
+      await startPreset(pg, 'portrait');
+      await waitGate(pg, 1);
+      ok(await pg.isDisabled('#new-start'), '(c) Start not disabled during the decode');
+      await pg.keyboard.press('Escape');
+      await release(pg);
+      await sleep(300);
+      ok(!(await isOpen(pg, 'crop-dialog')), '(c) crop dialog opened after Escape');
+      ok(!(await isOpen(pg, 'new-dialog')), '(c) New dialog reopened');
+      eq(await board(pg), b0, '(c) board');
+      eq(await movesOf(pg), 1, '(c) moves');
+      say('(c) Escape during a pending preset decode: Start disabled while pending, then no dialog and the game unchanged');
+    });
+    await gated(async (pg) => {
+      await startPreset(pg, 'portrait');
+      await waitGate(pg, 1);
+      await pg.keyboard.press('Escape');
+      await startPreset(pg, 'portrait');
+      await waitGate(pg, 2);
+      await release(pg);
+      await sleep(300);
+      ok(!(await isOpen(pg, 'crop-dialog')), '(d) crop dialog opened from the stale decode');
+      ok(await pg.$eval('#new-error', (e) => e.hidden), '(d) error shown by the stale decode');
+      eq(await gateLen(pg), 1, '(d) second decode not pending');
+      await release(pg);
+      await pg.waitForSelector('#crop-dialog[open]');
+      say('(d) stale token: the first decode changed nothing; the second opened the crop dialog');
+    });
+  }, { url: U(S.a) });
+
+  // preset-cache: AC2, I11. The listing is never served from the HTTP cache.
+  await run('preset-cache', async ({ say }) => {
+    need();
+    cn.count = 0;
+    cn.listing = (n) => ({ headers: { 'Cache-Control': 'max-age=3600' }, body: listingPage([n === 1 ? 'first.png' : 'second.png']) });
+    await withPage(cn.origin + '/', async (pg) => {
+      await pg.click('#new');
+      await presetRowVisible(pg);
+      eq(await presetNames(pg), ['first'], 'first open');
+      await pg.click('#new-cancel');
+      await pg.click('#new');
+      await pg.waitForFunction(() => [...document.querySelectorAll('#preset option')].some((o) => o.textContent === 'second'));
+      eq(await presetNames(pg), ['second'], 'second open');
+      eq(cn.count, 2, 'listing requests that reached the server');
+      say('max-age=3600 listing: the second open shows the second body, two requests reached the server');
+    });
+  });
+
+  // preset-race: AC5. A late listing never acts on a closed or newer dialog.
+  await run('preset-race', async ({ say }) => {
+    need();
+    cn.count = 0;
+    cn.listing = (n) => (n === 1 ? { delay: 1000, body: listingPage(['old.png']) } : { body: listingPage(['new.png']) });
+    await withPage(cn.origin + '/', async (pg) => {
+      await pg.click('#new');
+      await pg.click('#new-cancel');
+      await pg.click('#new');
+      await presetRowVisible(pg);
+      eq(await presetNames(pg), ['new'], 'reopened options');
+      await sleep(1500);
+      eq(await presetNames(pg), ['new'], 'options after the stale reply');
+      say('stale reply after Cancel and reopen ignored: options stay [new]');
+    });
+    cn.count = 0;
+    cn.listing = () => ({ delay: 800, body: listingPage(['late.png']) });
+    await withPage(cn.origin + '/', async (pg) => {
+      await pg.click('#new');
+      await pg.keyboard.press('Escape');
+      await sleep(1300);
+      ok(!(await isOpen(pg, 'new-dialog')), 'New dialog opened by the late reply');
+      ok(!(await isOpen(pg, 'crop-dialog')), 'crop dialog opened by the late reply');
+      ok(await pg.$eval('#preset-row', (e) => e.hidden), 'Picture row shown by the late reply');
+      say('late reply after Escape: both dialogs stay closed');
+    });
+  });
+
+  // preset-hostile: AC6, R5. Only same-origin files directly inside images/ are offered, and nothing leaves the origin.
+  await run('preset-hostile', async ({ page, say }) => {
+    need();
+    cn.count = 0;
+    cn.requests.length = 0;
+    const hrefs = [
+      'http://example.invalid/evil.png', '//other.invalid/evil.jpg', `http://127.0.0.1:${S.a.port}/x.png`,
+      'http://example.invalid/images/evil.png', '//other.invalid/images/evil.jpg', `http://127.0.0.1:${S.a.port}/images/x.png`,
+      'sub%2Finner.png', '..%5Cup.png', '../up.png', '/elsewhere/x.png', 'sub/inner.png',
+      'javascript:alert(1)//.png', 'data:image/png;base64,AAAA', '?C=N;O=D', './ok.png', 'ok%20two.webp', 'bad%E0%A4%A.png',
+    ];
+    cn.listing = () => ({ body: listingPage(hrefs) });
+    await withPage(cn.origin + '/', async (pg) => {
+      await pg.click('#new');
+      await presetRowVisible(pg);
+      eq(await presetNames(pg), ['ok', 'ok two'], 'offered options');
+      await pg.selectOption('#preset', { label: 'ok' });
+      await pg.click('#new-start');
+      await pg.waitForSelector('#crop-dialog[open]');
+      say('offered exactly ["ok","ok two"]; Start ok opened the crop dialog');
+    });
+    for (const p of cn.requests) ok(['/', '/index.html', '/images/', '/images/ok.png'].includes(p), 'unexpected request path ' + p);
+    say('canned origin requests: ' + JSON.stringify(cn.requests));
+    cn.count = 0;
+    cn.requests.length = 0;
+    cn.listing = () => ({ status: 302, headers: { Location: 'http://example.invalid/images/' }, body: '' });
+    expectConsole('http://example.invalid/images/', 'Failed to load resource: net::ERR_FAILED');
+    const mark = requests.length;
+    await withPage(cn.origin + '/', async (pg) => {
+      pg.on('console', (m) => say(`redirect case console: ${m.type()} ${m.text()} @ ${m.location().url}`));
+      await pg.click('#new');
+      await pg.waitForFunction(() => !document.getElementById('preset-note').hidden);
+      eq((await pg.textContent('#preset-note')).trim(), 'No preset pictures found.', 'redirect note');
+      ok(await pg.$eval('#preset-row', (e) => e.hidden), 'redirect: Picture row shown');
+      await sleep(300);
+    });
+    eq(requests.slice(mark).filter((u) => u.includes('example.invalid')), [], 'requests to example.invalid');
+    say('302 to another origin: treated as unavailable, no request to example.invalid; canned requests ' + JSON.stringify(cn.requests));
+  });
+
+  // preset-requests: AC6. The Python servers only ever saw the page and images/.
+  await run('preset-requests', async ({ say }) => {
+    need();
+    await sleep(300);
+    let total = 0;
+    for (const [k, s] of Object.entries(S)) {
+      total += s.log.length;
+      say(`${k}: ${s.log.length} requests: ${JSON.stringify([...new Set(s.log.map((e) => e.path))])}`);
+      for (const e of s.log) ok(e.path === '/' || e.path === '/index.html' || e.path.startsWith('/images/'), `${k}: unexpected GET ${e.path}`);
+      ok(!s.log.some((e) => e.path === '/favicon.ico'), k + ': /favicon.ico requested');
+    }
+    ok(total > 0, 'server logs are empty');
+  }, { shoot: false });
+
+  // preset-layout: R6. The grown New dialog still fits and reads on every view.
+  await run('preset-layout', async ({ page, dir, say }) => {
+    need();
+    for (const [w, h] of VIEWS) {
+      await page.setViewportSize({ width: w, height: h });
+      await page.click('#new');
+      await presetRowVisible(page);
+      const tag = `${w}x${h} New+presets`;
+      const m = await page.evaluate(() => {
+        const d = document.querySelector('#new-dialog');
+        const rc = (e) => { const q = e.getBoundingClientRect(); return { l: q.left, r: q.right, t: q.top, b: q.bottom }; };
+        const n3 = (s) => (s.match(/[\d.]+/g) || []).slice(0, 3).map(Number);
+        const vis = (e) => e.getClientRects().length > 0;
+        const leaves = [...d.querySelectorAll('label, legend, .hint, h2, button')].filter(vis).map((e) => ({ name: e.tagName + (e.id ? '#' + e.id : ''), colour: n3(getComputedStyle(e).color) }));
+        const greens = [d, ...d.querySelectorAll('*')].flatMap((e) => { const cs = getComputedStyle(e); return [['color', cs.color], ['background', cs.backgroundColor]].map(([k, v]) => ({ name: e.tagName + (e.id ? '#' + e.id : '') + ' ' + k, c: n3(v) })); }).filter((x) => x.c.length === 3 && x.c[1] > x.c[0] + 20 && x.c[1] > x.c[2] + 20).map((x) => x.name);
+        return {
+          d: rc(d), sw: d.scrollWidth, cw: d.clientWidth, docCw: document.documentElement.clientWidth, ih: window.innerHeight,
+          controls: [...d.querySelectorAll('button, select')].filter(vis).map((e) => ({ name: e.id, box: rc(e) })), leaves, greens,
+        };
+      });
+      ok(m.d.l >= 0 && m.d.r <= m.docCw && m.d.t >= 0 && m.d.b <= m.ih, `${tag}: dialog box ${JSON.stringify(m.d)} outside the viewport`);
+      ok(m.sw <= m.cw, `${tag}: dialog scrollWidth ${m.sw} > clientWidth ${m.cw}`);
+      ok(m.controls.some((k) => k.name === 'preset'), tag + ': #preset not among the controls checked');
+      for (const k of m.controls) ok(inside(k.box, m.d), `${tag}: ${k.name} outside the dialog`);
+      for (const l of m.leaves) ok(l.colour.every((v) => v >= 230), `${tag}: ${l.name} text colour ${l.colour} below 230`);
+      ok(m.leaves.length >= 4, tag + ': too few text leaves checked');
+      eq(m.greens, [], tag + ' green text or background');
+      const bg = await colours(page, '#new-dialog');
+      nonVacuous(bg, tag + ' dialog background', say);
+      ok(bg.every((x) => maxc(x) <= 48), tag + ': dialog background not dark plastic');
+      const sb = await colours(page, '#preset');
+      nonVacuous(sb, tag + ' #preset background', say);
+      ok(sb.every((x) => maxc(x) <= 48), tag + ': #preset background not dark plastic');
+      const sc = rgbOf(await style(page, '#preset', 'color'));
+      ok(sc.every((v) => v >= 230), `${tag}: #preset text colour ${sc} below 230`);
+      say(`${tag}: dialog inside the viewport, ${m.controls.length} controls inside (incl. #preset), ${m.leaves.length} text leaves light, #preset dark with light text`);
+      await shot(page, dir, `new-${w}.png`);
+      await page.click('#new-cancel');
+    }
+  }, { url: U(S.real) });
+
+  // readme-run: R8. The README says how to run it over HTTP.
+  await run('readme-run', async ({ say }) => {
+    const readme = fs.readFileSync(path.join(ROOT, 'README.md'), 'utf8');
+    ok(readme.includes('python -m http.server 8000'), 'README lacks python -m http.server 8000');
+    ok(readme.includes('http://localhost:8000/'), 'README lacks http://localhost:8000/');
+    say('README has the run command and the URL');
+  }, { shoot: false });
+
   // single-file: AC1 (runs near the end so the change set includes the evidence written by the other checks)
   await run('single-file', async ({ say }) => {
-    const sh = (c) => execSync(c, { encoding: 'utf8' }).split(/\r?\n/).filter(Boolean);
+    const sh = (c) => execSync(c.replace(/^git /, 'git -c core.quotepath=off '), { encoding: 'utf8' }).split(/\r?\n/).filter(Boolean);
     const changed = new Set([
       ...sh(`git diff --name-only ${BASE}...HEAD`),
       ...sh('git diff --name-only HEAD'),
@@ -1500,16 +2106,25 @@ async function main() {
       ...sh('git ls-files --others --exclude-standard'),
     ]);
     say('changed set: ' + [...changed].join(', '));
-    const bad = [...changed].filter((f) => f !== 'index.html' && !f.startsWith('test-results/'));
-    eq(bad, [], 'files outside index.html and test-results/**');
+    const bad = [...changed].filter((f) => f !== 'index.html' && f !== 'README.md' && !f.startsWith('test-results/') && !(f.startsWith('images/') && !f.slice(7).includes('/') && R1.test(f)));
+    eq(bad, [], 'files outside index.html, README.md, test-results/** and images/<image>');
     ok(changed.has('index.html'), 'index.html not in change set');
+    ok(changed.has('README.md'), 'README.md not in change set');
+    ok([...changed].some((f) => f.startsWith('images/')), 'no images/ file in change set');
+    const tracked = sh('git ls-files images/');
+    ok(tracked.length >= 1, 'no tracked file under images/');
+    eq(tracked.filter((f) => !R1.test(f)), [], 'tracked files under images/ without a recognised extension');
     const html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
     const pats = { 'src=': /src=/, 'href= (not #)': /href=(?!["']#)/, '@import': /@import/, 'url(': /url\(/, 'type="module"': /type="module"/, 'fetch(': /fetch\(/, XMLHttpRequest: /XMLHttpRequest/, '@font-face': /@font-face/, '<link': /<link/ };
+    const want = { 'fetch(': 2, '<link': 1, 'href= (not #)': 1 };
     for (const [k, re] of Object.entries(pats)) {
       const n = (html.match(new RegExp(re.source, 'g')) || []).length;
       say(`grep ${k}: ${n} matches`);
-      eq(n, 0, `grep ${k}`);
+      eq(n, want[k] || 0, `grep ${k}`);
     }
+    ok(html.includes("fetch('images/'"), "fetch('images/' missing");
+    eq(html.match(/<link[^>]*>/g), ['<link rel="icon" href="data:,">'], 'the one <link>');
+    eq(html.match(/href=[^>\s]*/g), ['href="data:,"'], 'the one href=');
   }, { shoot: false });
 
   // logic-unchanged: #3 section 4 (I9). The seven game-logic functions are byte-identical to the merge base.
@@ -1546,15 +2161,24 @@ async function main() {
     const uniq = [...new Set(requests.map((u) => u.split('?')[0].split('#')[0]))];
     say('requests: ' + requests.length + '; distinct urls: ' + JSON.stringify(uniq));
     ok(requests.length > 0, 'no requests captured');
-    eq(uniq.filter((u) => u !== PAGE_URL), [], 'urls other than index.html');
+    const allowed = (u) => {
+      if (u === PAGE_URL || u === 'data:,') return true;
+      let q;
+      try { q = new URL(u); } catch (_) { return false; }
+      return driverOrigins.has(q.origin) && (q.pathname === '/' || q.pathname === '/index.html' || q.pathname.startsWith('/images/'));
+    };
+    eq(uniq.filter((u) => !allowed(u)), [], 'urls other than the page, the data icon and same-origin images/');
   }, { shoot: false });
 
   await run('console', async ({ say }) => {
     say(`errors collected: ${errors.length}`);
-    errors.forEach((e) => say(e));
-    eq(errors, [], 'runtime errors');
+    errors.forEach((e) => say(e.text + ' @ ' + e.url));
+    const unexpected = errors.filter((e) => !expectedConsole.some((x) => e.url === x.url && e.text.startsWith('console: ' + x.prefix)));
+    say(`registered expectations: ${JSON.stringify(expectedConsole)}`);
+    eq(unexpected.map((e) => e.text + ' @ ' + e.url), [], 'runtime errors');
   }, { shoot: false });
 
+  await stopAll();
   await browser.close();
   fs.rmSync(tmpVideo, { recursive: true, force: true });
   const text = lines.join('\n') + '\n';

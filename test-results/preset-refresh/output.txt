@@ -1,0 +1,2 @@
+fresh file listed on the next open, no reload, crop dialog opened (it decodes)
+deleted file gone on the next open; one GET /images/ per open

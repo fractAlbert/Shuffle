@@ -1,0 +1,12 @@
+1280x800 New+presets dialog background colours: [[36,36,36],[22,22,22],[16,16,16]]
+1280x800 New+presets #preset background colours: [[42,42,42],[18,18,18]]
+1280x800 New+presets: dialog inside the viewport, 5 controls inside (incl. #preset), 10 text leaves light, #preset dark with light text
+560x800 New+presets dialog background colours: [[36,36,36],[22,22,22],[16,16,16]]
+560x800 New+presets #preset background colours: [[42,42,42],[18,18,18]]
+560x800 New+presets: dialog inside the viewport, 5 controls inside (incl. #preset), 10 text leaves light, #preset dark with light text
+390x844 New+presets dialog background colours: [[36,36,36],[22,22,22],[16,16,16]]
+390x844 New+presets #preset background colours: [[42,42,42],[18,18,18]]
+390x844 New+presets: dialog inside the viewport, 5 controls inside (incl. #preset), 10 text leaves light, #preset dark with light text
+360x740 New+presets dialog background colours: [[36,36,36],[22,22,22],[16,16,16]]
+360x740 New+presets #preset background colours: [[42,42,42],[18,18,18]]
+360x740 New+presets: dialog inside the viewport, 5 controls inside (incl. #preset), 10 text leaves light, #preset dark with light text

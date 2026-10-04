@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Shuffle</title>
+<link rel="icon" href="data:,">
 <style>
   :root {
     --table: #c9c6bf; --plastic: #161616; --plastic-edge: #3a3a3a; --floor: #050505;
@@ -65,12 +66,12 @@
     box-shadow: inset 1px 1px 0 rgba(255,255,255,0.4), inset -1px -1px 0 rgba(0,0,0,0.3);
   }
   .size { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px 24px; font-size: 1.05rem; font-weight: 600; color: var(--ink); }
-  .size select {
+  .size select, dialog .preset select {
     font: inherit; margin-left: 4px; padding: 4px 8px; border: none; border-radius: 8px; cursor: pointer;
     background: linear-gradient(#2a2a2a, #121212); color: var(--print);
     box-shadow: inset 0 1px 0 rgba(255,255,255,0.15), 0 2px 4px rgba(0,0,0,0.3);
   }
-  .size option { background: #1a1a1a; color: var(--print); }
+  .size option, dialog .preset option { background: #1a1a1a; color: var(--print); }
   #shuffle, #new, dialog button {
     padding: 10px 26px; font-size: 1rem; font-weight: 600; border: none; border-radius: 8px; cursor: pointer;
     background: linear-gradient(#2a2a2a, #121212); color: var(--print);
@@ -96,6 +97,8 @@
   dialog input[type="radio"], dialog input[type="range"] { accent-color: var(--cream); }
   dialog .file { display: block; margin-bottom: 12px; font-weight: 600; }
   dialog .file input { display: block; margin-top: 6px; max-width: 100%; }
+  dialog .file[hidden] { display: none; }
+  dialog .preset select { display: block; margin-left: 0; margin-top: 6px; max-width: 100%; }
   dialog .zoom { display: flex; align-items: center; gap: 10px; margin: 12px 0; font-weight: 600; }
   dialog .zoom input { flex: 1; min-width: 0; }
   #crop-view { display: block; margin: 0 auto; touch-action: none; cursor: grab; border-radius: 3px; background: var(--floor); }
@@ -141,6 +144,8 @@
     <label><input type="radio" name="kind" id="kind-numbers" value="numbers" checked> Numbers</label>
     <label><input type="radio" name="kind" id="kind-image" value="image"> Image</label>
   </fieldset>
+  <label class="file preset" id="preset-row" hidden>Picture <select id="preset" autocomplete="off"><option value="">Choose a picture</option></select></label>
+  <p id="preset-note" class="hint" hidden></p>
   <label class="file">Image file <input type="file" id="image-file" accept="image/*"></label>
   <p id="new-error" role="alert" hidden></p>
   <div class="dialog-actions">
@@ -171,6 +176,7 @@ let image = null; // ImageBitmap of the current image puzzle, or null for number
 let pieces = null; // pieces[v] = canvas for tile v, or null for numbers
 let crop = null; // open crop modal: { bmp, rows, cols, z, cx, cy, vw, vh }
 let decodeId = 0; // generation token for the pending decode in the New dialog
+let listId = 0; // generation token for the pending images/ listing in the New dialog
 let dragFrom = null; // last pointer position while dragging the crop view, or null
 
 // Rebuild the board DOM and counters from the current state, then check for a win.
@@ -294,7 +300,7 @@ const cropDialog = $('crop-dialog');
 const cropView = $('crop-view');
 const cropZoom = $('crop-zoom');
 
-// Show the New puzzle dialog, prefilled with the current size and tile kind.
+// Show the New puzzle dialog, prefilled with the current size and tile kind, and list the preset pictures.
 function openNew() {
   $('rows').value = String(rows);
   $('cols').value = String(cols);
@@ -303,6 +309,7 @@ function openNew() {
   $('new-error').hidden = true;
   $('new-start').disabled = false;
   newDialog.showModal();
+  loadPresets();
 }
 
 // Start the puzzle chosen in the New dialog: numbers at once, an image via the crop dialog.
@@ -318,6 +325,13 @@ function startNew() {
     image = null;
     pieces = null;
     setSize(r, c);
+  } else if ($('preset').value) {
+    const id = ++decodeId;
+    $('new-start').disabled = true;
+    fetch($('preset').value, { redirect: 'error' })
+      .then((res) => (res.ok ? res.blob() : Promise.reject(new Error('HTTP ' + res.status))))
+      .then((b) => createImageBitmap(b))
+      .then((bmp) => onDecoded(bmp, id, r, c), () => onRejected(id));
   } else if (!file && image) {
     newDialog.close();
     openCrop(image, r, c);
@@ -328,6 +342,65 @@ function startNew() {
     $('new-start').disabled = true;
     createImageBitmap(file).then((bmp) => onDecoded(bmp, id, r, c), () => onRejected(id));
   }
+}
+
+// Fetch the images/ listing for the open New dialog (HTTP pages only) and fill the Picture select.
+function loadPresets() {
+  const id = ++listId;
+  const sel = $('preset');
+  sel.length = 1;
+  sel.value = '';
+  $('preset-row').hidden = true;
+  $('preset-note').hidden = true;
+  if (location.protocol !== 'http:' && location.protocol !== 'https:') {
+    $('preset-note').textContent = 'Preset pictures need Shuffle served over HTTP (see README).';
+    $('preset-note').hidden = false;
+    return;
+  }
+  fetch('images/', { cache: 'no-store', redirect: 'error' })
+    .then((res) => (res.ok ? res.text().then((t) => parseListing(t, res.url)) : []))
+    .then((list) => onListed(list, id), () => onListed([], id));
+}
+
+// Return [{ name, url }] for the recognised image links directly inside images/ in a listing page.
+function parseListing(html, base) {
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  const dir = new URL('images/', location.href);
+  const seen = new Set();
+  const out = [];
+  doc.querySelectorAll('a[href]').forEach((a) => {
+    let u;
+    try { u = new URL(a.getAttribute('href'), base); } catch (e) { return; }
+    if (u.origin !== location.origin || !u.pathname.startsWith(dir.pathname)) return;
+    const rest = u.pathname.slice(dir.pathname.length);
+    if (!rest || rest.includes('/')) return;
+    let file;
+    try { file = decodeURIComponent(rest); } catch (e) { return; }
+    if (file.includes('/') || file.includes('\\')) return;
+    if (!/\.(jpe?g|png|webp|gif|avif)$/i.test(file)) return;
+    const url = u.origin + u.pathname;
+    if (seen.has(url)) return;
+    seen.add(url);
+    out.push({ name: file.replace(/\.[^.]+$/, ''), url });
+  });
+  return out.sort((x, y) => x.name.localeCompare(y.name));
+}
+
+// Show the listed presets, or the note, unless the New dialog closed or a newer listing started.
+function onListed(list, id) {
+  if (!newDialog.open || id !== listId) return;
+  if (!list.length) {
+    $('preset-note').textContent = 'No preset pictures found.';
+    $('preset-note').hidden = false;
+    return;
+  }
+  list.forEach((item) => {
+    const opt = document.createElement('option');
+    opt.value = item.url;
+    opt.textContent = item.name;
+    $('preset').appendChild(opt);
+  });
+  $('preset-row').hidden = false;
 }
 
 // Open the crop dialog for a decoded image, unless the New dialog closed or a newer decode started.
@@ -427,7 +500,8 @@ $('new').addEventListener('click', openNew);
 $('new-start').addEventListener('click', startNew);
 $('new-cancel').addEventListener('click', () => newDialog.close());
 newDialog.addEventListener('close', () => { decodeId++; $('new-start').disabled = false; });
-$('image-file').addEventListener('change', () => { if ($('image-file').files.length) $('kind-image').checked = true; });
+$('image-file').addEventListener('change', () => { if ($('image-file').files.length) { $('kind-image').checked = true; $('preset').value = ''; } });
+$('preset').addEventListener('change', () => { if ($('preset').value) { $('kind-image').checked = true; $('image-file').value = ''; } });
 $('crop-cancel').addEventListener('click', () => cropDialog.close());
 $('crop-done').addEventListener('click', cropDone);
 $('crop-centre').addEventListener('click', () => { crop.cx = crop.bmp.width / 2; crop.cy = crop.bmp.height / 2; drawCrop(); });

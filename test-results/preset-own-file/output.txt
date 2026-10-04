@@ -1,0 +1,4 @@
+own landscape 3x3: crop sx 100.0 sy 0.0 cw 400.0 ch 400.0; preview error 1.11px; 8 pieces, worst error 1.11px
+preset then file follows the file: crop sx 100.0 sy 0.0 cw 400.0 ch 400.0; preview error 1.11px; 8 pieces, worst error 1.11px
+file then preset follows the preset: crop sx 0.0 sy 33.3 cw 400.0 ch 533.3; preview error 1.57px; 11 pieces, worst error 1.01px
+reuse of the current image: crop sx 0.0 sy 33.3 cw 400.0 ch 533.3; preview error 1.01px; 11 pieces, worst error 1.01px

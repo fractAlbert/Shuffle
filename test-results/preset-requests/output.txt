@@ -1,0 +1,5 @@
+real: 8 requests: ["/images/","/","/index.html","/images/Katsushika%20Hokusai%20%E2%80%93%20The%20Great%20Wave%20off%20Kanagawa.webp"]
+a: 39 requests: ["/images/","/","/images/Fresh%20%E2%80%93%20A%C3%B1adida.png","/images/Grad%20%E2%80%93%20Landscape%20%E2%80%991%E2%80%99.png","/images/portrait.PNG","/images/broken.jpg","/images/gone.png"]
+b: 5 requests: ["/images/","/"]
+c: 5 requests: ["/images/","/"]
+d: 5 requests: ["/images/","/"]

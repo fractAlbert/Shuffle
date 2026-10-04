@@ -1,0 +1,5 @@
+A 3x3 preset: crop sx 100.0 sy 0.0 cw 400.0 ch 400.0; preview error 1.11px; 8 pieces, worst error 1.11px
+3x3 preset: crop at the oracle, no numbers, 5 shuffles solvable with pieces home, one slide counted
+A 3x6 portrait zoom 2 drag -2 clamps: crop sx 200.0 sy 450.0 cw 200.0 ch 100.0; preview error 1.56px; 17 pieces, worst error 1.56px
+REAL 4x4 Katsushika Hokusai – The Great Wave off Kanagawa: 15 image tiles, 15 distinct centre colours
+Cancel and Escape on the crop leave the numbers game and a running timer alone; Numbers wins over a selected preset

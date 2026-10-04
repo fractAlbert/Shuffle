@@ -1,0 +1,2 @@
+stale reply after Cancel and reopen ignored: options stay [new]
+late reply after Escape: both dialogs stay closed
