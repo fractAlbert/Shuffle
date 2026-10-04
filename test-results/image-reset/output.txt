@@ -1,0 +1,3 @@
+(a) numbers -> image: image board solved, moves 0, timer 0 (still 0 after 1.5s), message hidden, timer runs after a move
+(b) solved image -> image: image board solved, moves 0, timer 0 (still 0 after 1.5s), message hidden, timer runs after a move
+(c) moved image -> reused image: image board solved, moves 0, timer 0 (still 0 after 1.5s), message hidden, timer runs after a move

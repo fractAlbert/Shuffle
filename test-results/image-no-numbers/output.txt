@@ -1,0 +1,2 @@
+3x3: 8 image tiles, no text, ::after "", one canvas each, 5x5 samples monotone
+6x6: 35 image tiles, no text, ::after "", one canvas each, 5x5 samples monotone

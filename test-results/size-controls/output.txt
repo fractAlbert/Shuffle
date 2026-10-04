@@ -1,3 +1,4 @@
 rows: {"tag":"SELECT","ac":"off","opts":["3","4","5","6"],"val":"3"}
 cols: {"tag":"SELECT","ac":"off","opts":["3","4","5","6"],"val":"3"}
+.size elements: [{"inDialog":true,"boxes":0}]
 after back/forward: ["3","3",9]

@@ -1,0 +1,7 @@
+move: 480 bytes, identical to 541c190
+shuffle: 342 bytes, identical to 541c190
+isSolvable: 414 bytes, identical to 541c190
+isSolved: 107 bytes, identical to 541c190
+checkWin: 223 bytes, identical to 541c190
+startTimer: 187 bytes, identical to 541c190
+setSize: 232 bytes, identical to 541c190

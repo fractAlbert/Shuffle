@@ -1,0 +1,16 @@
+3x3: 9 tiles, 3 columns, 3 rows, 8 pieces match the oracle (worst 1.11px), solved, moves 0, timer 0s
+3x4: 12 tiles, 4 columns, 3 rows, 11 pieces match the oracle (worst 1.01px), solved, moves 0, timer 0s
+3x5: 15 tiles, 5 columns, 3 rows, 14 pieces match the oracle (worst 1.07px), solved, moves 0, timer 0s
+3x6: 18 tiles, 6 columns, 3 rows, 17 pieces match the oracle (worst 1.01px), solved, moves 0, timer 0s
+4x3: 12 tiles, 3 columns, 4 rows, 11 pieces match the oracle (worst 0.67px), solved, moves 0, timer 0s
+4x4: 16 tiles, 4 columns, 4 rows, 15 pieces match the oracle (worst 1.01px), solved, moves 0, timer 0s
+4x5: 20 tiles, 5 columns, 4 rows, 19 pieces match the oracle (worst 1.01px), solved, moves 0, timer 0s
+4x6: 24 tiles, 6 columns, 4 rows, 23 pieces match the oracle (worst 1.01px), solved, moves 0, timer 0s
+5x3: 15 tiles, 3 columns, 5 rows, 14 pieces match the oracle (worst 0.81px), solved, moves 0, timer 0s
+5x4: 20 tiles, 4 columns, 5 rows, 19 pieces match the oracle (worst 0.87px), solved, moves 0, timer 0s
+5x5: 25 tiles, 5 columns, 5 rows, 24 pieces match the oracle (worst 0.94px), solved, moves 0, timer 0s
+5x6: 30 tiles, 6 columns, 5 rows, 29 pieces match the oracle (worst 1.01px), solved, moves 0, timer 0s
+6x3: 18 tiles, 3 columns, 6 rows, 17 pieces match the oracle (worst 0.81px), solved, moves 0, timer 0s
+6x4: 24 tiles, 4 columns, 6 rows, 23 pieces match the oracle (worst 1.23px), solved, moves 0, timer 0s
+6x5: 30 tiles, 5 columns, 6 rows, 29 pieces match the oracle (worst 1.11px), solved, moves 0, timer 0s
+6x6: 36 tiles, 6 columns, 6 rows, 35 pieces match the oracle (worst 1.56px), solved, moves 0, timer 0s

@@ -1,1 +1,1 @@
-requests: 38; distinct urls: ["file:///C:/Users/fract/Documents/github/Shuffle/index.html"]
+requests: 57; distinct urls: ["file:///C:/Users/fract/Documents/github/Shuffle/index.html"]
