@@ -1,0 +1,4 @@
+(a) broken: "That file is not an image.", dialog open, Start enabled; portrait afterwards opens the crop and clears the error
+(b) deleted between listing and Start: the same error
+(c) Escape during a pending preset decode: Start disabled while pending, then no dialog and the game unchanged
+(d) stale token: the first decode changed nothing; the second opened the crop dialog

@@ -15,5 +15,8 @@ function drawCrop: present with comment
 function moveCrop: present with comment
 function cutImage: present with comment
 function cropDone: present with comment
+function loadPresets: present with comment
+function parseListing: present with comment
+function onListed: present with comment
 SIZE: absent
 isSolvable(tiles, cols): present

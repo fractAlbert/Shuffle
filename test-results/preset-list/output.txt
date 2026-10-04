@@ -1,0 +1,3 @@
+REAL /: 6 options: ["Edward Hopper - Nighthawks","Henri Rousseau - The Sleeping Gypsy","Jacques-Louis David - Napoleon Crossing the Alps","James McNeill Whistler - Whistler’s Mother","Katsushika Hokusai – The Great Wave off Kanagawa","Sandro Botticelli - The Birth of Venus"]
+REAL /index.html: 6 options: ["Edward Hopper - Nighthawks","Henri Rousseau - The Sleeping Gypsy","Jacques-Louis David - Napoleon Crossing the Alps","James McNeill Whistler - Whistler’s Mother","Katsushika Hokusai – The Great Wave off Kanagawa","Sandro Botticelli - The Birth of Venus"]
+A names: ["50% #1","Anim","broken","Bust (detail) 'x'","Grad – Landscape ’1’","Next","Plain","portrait","Shot","UPPER"]
