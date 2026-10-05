@@ -1,7 +1,7 @@
-move: 480 bytes, identical to 580a54f
-shuffle: 342 bytes, identical to 580a54f
-isSolvable: 414 bytes, identical to 580a54f
-isSolved: 107 bytes, identical to 580a54f
-checkWin: 223 bytes, identical to 580a54f
-startTimer: 187 bytes, identical to 580a54f
-setSize: 232 bytes, identical to 580a54f
+move: 480 bytes, identical to c722cfa
+shuffle: 342 bytes, identical to c722cfa
+isSolvable: 414 bytes, identical to c722cfa
+isSolved: 107 bytes, identical to c722cfa
+checkWin: 223 bytes, identical to c722cfa
+startTimer: 187 bytes, identical to c722cfa
+setSize: 232 bytes, identical to c722cfa

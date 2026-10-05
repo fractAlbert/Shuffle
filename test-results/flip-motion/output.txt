@@ -1,0 +1,2 @@
+one CSSTransition on transform, 600ms; m11 0.746 at 300ms, -1.0000 at the end, 1.0000 flipped back; right band 216 bright, 0 non-grey in the panel
+reduced motion: no animation, m11 -1 then 1 at once

@@ -1,0 +1,7 @@
+(a) preset: canvas 201x201 css, 201x201 store at dpr 1; 0 non-grey; 31 samples, worst luma error 1.08; cut steps 1/2
+(b) real preset "Edward Hopper - Nighthawks" at 4x4: caption is its listed name, a stem of images/
+(d) re-crop 3x4: canvas 268x201 css, 268x201 store at dpr 1; 0 non-grey; 31 samples, worst luma error 1.29; cut steps 1/2
+(c) own file landscape.png -> "landscape"; ".png" -> "Your picture"; (d) re-crop 3x4 keeps "landscape" and shows the 3x4 crop
+(e) image then numbers 5x6: caption "Shuffle 5×6", grid shown
+(f) 3x12 at 360: Jacques-Louis caption 34px tall inside the back; 240 characters 34px (one line 17px), panel 286 against 286
+(g) the Picture select changed while the preset loaded: caption is still the preset that was started

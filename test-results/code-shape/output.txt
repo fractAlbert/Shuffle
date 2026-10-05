@@ -21,5 +21,8 @@ function onListed: present with comment
 function gridRange: present with comment
 function applyRange: present with comment
 function loadSettings: present with comment
+function flip: present with comment
+function drawBack: present with comment
+function greyscale: present with comment
 SIZE: absent
 isSolvable(tiles, cols): present

@@ -1,0 +1,4 @@
+file 360x740: 64 sizes, grid, caption and layout hold
+file 1280x800: 64 sizes, grid, caption and layout hold
+http 360x740: 100 sizes, grid, caption and layout hold
+http 1280x800: 4 sizes, grid, caption and layout hold

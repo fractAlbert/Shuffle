@@ -1,0 +1,13 @@
+landscape 3x3: canvas 201x201 css, 201x201 store at dpr 1; 0 non-grey; 31 samples, worst luma error 1.08; cut steps 1/2
+landscape 4x6: canvas 402x268 css, 402x268 store at dpr 1; 0 non-grey; 31 samples, worst luma error 1.51; cut steps 1/2
+landscape 6x3: canvas 201x402 css, 201x402 store at dpr 1; 0 non-grey; 31 samples, worst luma error 1.13; cut steps 1/1
+landscape 10x10: canvas 563x563 css, 563x563 store at dpr 1; 0 non-grey; 31 samples, worst luma error 1.27; cut steps 1/1
+landscape 3x10: canvas 670x201 css, 670x201 store at dpr 1; 0 non-grey; 31 samples, worst luma error 1.22; cut steps 0/0
+landscape 10x3: canvas 168x560 css, 168x560 store at dpr 1; 0 non-grey; 31 samples, worst luma error 1.10; cut steps 0/0
+portrait 3x3: canvas 201x201 css, 201x201 store at dpr 1; 0 non-grey; 31 samples, worst luma error 1.10; cut steps 1/1
+portrait 10x3: canvas 168x560 css, 168x560 store at dpr 1; 0 non-grey; 31 samples, worst luma error 0.74; cut steps 1/1
+landscape 4x4 zoom 2: canvas 268x268 css, 268x268 store at dpr 1; 0 non-grey; 31 samples, worst luma error 1.16; cut steps 0/0
+landscape 12x12: canvas 563x563 css, 563x563 store at dpr 1; 0 non-grey; 31 samples, worst luma error 1.27; cut steps 1/1
+landscape 3x12: canvas 804x201 css, 804x201 store at dpr 1; 0 non-grey; 31 samples, worst luma error 1.15; cut steps 0/0
+landscape 12x3: canvas 140x560 css, 140x560 store at dpr 1; 0 non-grey; 31 samples, worst luma error 1.10; cut steps 1/1
+dpr2 landscape 3x3: canvas 201x201 css, 402x402 store at dpr 2; 0 non-grey; 31 samples, worst luma error 1.32; cut steps 1/1

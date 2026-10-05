@@ -1,0 +1,3 @@
+(a) numbers: frame inert, clicks over the front tiles ignored, New/Shuffle disabled, 15 Tabs never left Flip, Enter flipped back, a click then moved
+(b) normal motion: a click on tile 7 during the turn did nothing
+(c) image: clicks over the front tiles ignored, labels unchanged

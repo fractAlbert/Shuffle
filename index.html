@@ -78,15 +78,48 @@
     box-shadow: inset 0 1px 0 rgba(255,255,255,0.15), 0 2px 4px rgba(0,0,0,0.3);
   }
   .size option, dialog .preset option { background: #1a1a1a; color: var(--print); }
-  #shuffle, #new, dialog button {
+  #shuffle, #new, #flip, dialog button {
     padding: 10px 26px; font-size: 1rem; font-weight: 600; border: none; border-radius: 8px; cursor: pointer;
     background: linear-gradient(#2a2a2a, #121212); color: var(--print);
     box-shadow: inset 0 1px 0 rgba(255,255,255,0.15), 0 2px 4px rgba(0,0,0,0.3);
   }
-  #shuffle:hover, #new:hover, dialog button:hover { background: linear-gradient(#333, #1a1a1a); }
+  #shuffle:hover:not(:disabled), #new:hover:not(:disabled), #flip:hover, dialog button:hover { background: linear-gradient(#333, #1a1a1a); }
   dialog button { padding: 8px 18px; box-shadow: inset 0 1px 0 rgba(255,255,255,0.15), 0 0 0 1px var(--plastic-edge); }
   dialog button:disabled { opacity: 0.5; cursor: default; }
   .actions { display: flex; gap: 12px; }
+  #shuffle:disabled, #new:disabled { opacity: 0.45; cursor: default; }
+  .actions .sep { width: 1px; align-self: stretch; margin: 4px 6px; background: rgba(0,0,0,0.35); }
+  .plate {
+    position: relative; max-width: 100%;
+    transform: perspective(1200px) rotateY(0deg); transform-style: preserve-3d; transition: transform 0.6s ease-in-out;
+  }
+  .plate.flipped { transform: perspective(1200px) rotateY(180deg); }
+  .frame, .back { backface-visibility: hidden; }
+  .back {
+    position: absolute; inset: 0; transform: rotateY(180deg); overflow: hidden;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px;
+    padding: 14px 28px 10px 14px; border-radius: 14px; color: var(--print);
+    background: linear-gradient(200deg, #242424, var(--plastic) 40%, #101010);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.14), inset 0 0 0 1px var(--plastic-edge),
+                0 10px 24px rgba(0,0,0,0.35), 0 2px 4px rgba(0,0,0,0.3);
+  }
+  #back-picture, #back-grid { flex: none; }
+  #back-picture[hidden], #back-grid[hidden] { display: none; }
+  #back-grid { display: grid; gap: 1px; padding: 1px; background: #8a8a8a; }
+  .back-cell {
+    display: flex; align-items: center; justify-content: center; background: #e6e6e6; color: #1a1a1a;
+    font-family: "Arial Rounded MT Bold", "Arial Rounded MT", ui-rounded, "Nunito", "Trebuchet MS", system-ui, sans-serif; font-weight: 700;
+  }
+  .back-cell.empty { background: #1a1a1a; }
+  .back-caption {
+    flex: none; margin: 0; text-align: center; font-size: 0.8rem; font-weight: 700; overflow-wrap: anywhere;
+    display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden;
+  }
+  .back-maker { position: absolute; right: 8px; top: 30px; margin: 0; writing-mode: vertical-rl; transform: rotate(180deg); font-size: 0.55rem; white-space: nowrap; }
+  .back-mark {
+    position: absolute; top: 10px; right: 7px; width: 14px; height: 14px; border: 1px solid var(--print); border-radius: 50%;
+    display: flex; align-items: center; justify-content: center; font-size: 0.5rem; font-weight: 700; line-height: 1;
+  }
   dialog {
     width: min(440px, calc(100% - 32px)); padding: 20px; border: none; border-radius: 14px;
     background: linear-gradient(160deg, #242424, var(--plastic) 40%, #101010); color: var(--print); color-scheme: dark;
@@ -121,15 +154,25 @@
     .brand { font-size: 1.6rem; }
     .note { font-size: 0.7rem; text-align: right; max-width: 11em; }
   }
+  @media (prefers-reduced-motion: reduce) { .plate { transition: none; } }
 </style>
 </head>
 <body>
+<div class="plate" id="plate">
 <div class="frame" id="frame">
   <div class="well"><div id="board"></div></div>
   <div class="panel">
     <h1 class="brand">Shuffle</h1>
     <p class="note">Click a tile next to the gap to slide it.</p>
   </div>
+</div>
+<div class="back" id="back" inert>
+  <canvas id="back-picture" hidden></canvas>
+  <div id="back-grid" hidden></div>
+  <p class="back-caption" id="back-caption"></p>
+  <p class="back-maker">Made by SHUFFLE</p>
+  <span class="back-mark" aria-hidden="true">S</span>
+</div>
 </div>
 <div class="status">
   <span id="moves">Moves: 0</span>
@@ -138,6 +181,7 @@
 <div class="actions">
   <button id="new" type="button">New</button>
   <button id="shuffle" type="button">Shuffle</button>
+  <span class="sep" aria-hidden="true"></span><button id="flip" type="button" aria-pressed="false">Flip</button>
 </div>
 <div id="message" hidden>You solved it!</div>
 <dialog id="new-dialog" aria-labelledby="new-title">
@@ -180,11 +224,14 @@ let timerId = null;
 let frozen = false;
 let image = null; // ImageBitmap of the current image puzzle, or null for numbers
 let pieces = null; // pieces[v] = canvas for tile v, or null for numbers
-let crop = null; // open crop modal: { bmp, rows, cols, z, cx, cy, vw, vh }
+let crop = null; // open crop modal: { bmp, name, rows, cols, z, cx, cy, vw, vh }
 let decodeId = 0; // generation token for the pending decode in the New dialog
 let listId = 0; // generation token for the pending images/ listing in the New dialog
 let dragFrom = null; // last pointer position while dragging the crop view, or null
 let range = null; // sizes offered in the New dialog: { rows: { min, max }, cols: { min, max } }
+let flipped = false; // true while the back of the board is showing
+let picture = null; // crop rectangle { sx, sy, cw, ch } of image, painted whole on the back
+let caption = ''; // back caption of the current image puzzle: the preset or file name
 
 // Rebuild the board DOM and counters from the current state, then check for a win.
 function render() {
@@ -334,20 +381,21 @@ function startNew() {
     setSize(r, c);
   } else if ($('preset').value) {
     const id = ++decodeId;
+    const name = $('preset').selectedOptions[0].textContent;
     $('new-start').disabled = true;
     fetch($('preset').value, { redirect: 'error' })
       .then((res) => (res.ok ? res.blob() : Promise.reject(new Error('HTTP ' + res.status))))
       .then((b) => createImageBitmap(b))
-      .then((bmp) => onDecoded(bmp, id, r, c), () => onRejected(id));
+      .then((bmp) => onDecoded(bmp, id, r, c, name), () => onRejected(id));
   } else if (!file && image) {
     newDialog.close();
-    openCrop(image, r, c);
+    openCrop(image, r, c, caption);
   } else if (!file) {
     error('Choose an image file.');
   } else {
     const id = ++decodeId;
     $('new-start').disabled = true;
-    createImageBitmap(file).then((bmp) => onDecoded(bmp, id, r, c), () => onRejected(id));
+    createImageBitmap(file).then((bmp) => onDecoded(bmp, id, r, c, file.name.replace(/\.[^.]+$/, '') || 'Your picture'), () => onRejected(id));
   }
 }
 
@@ -411,10 +459,10 @@ function onListed(list, id) {
 }
 
 // Open the crop dialog for a decoded image, unless the New dialog closed or a newer decode started.
-function onDecoded(bmp, id, r, c) {
+function onDecoded(bmp, id, r, c, name) {
   if (!newDialog.open || id !== decodeId) { bmp.close(); return; }
   newDialog.close();
-  openCrop(bmp, r, c);
+  openCrop(bmp, r, c, name);
 }
 
 // Report an undecodable file in the New dialog, unless it closed or a newer decode started.
@@ -436,8 +484,8 @@ function cropRect(c) {
 }
 
 // Open the crop dialog for bmp at r rows by c columns: zoom 1, centred, view sized after the dialog is shown.
-function openCrop(bmp, r, c) {
-  crop = { bmp, rows: r, cols: c, z: 1, cx: bmp.width / 2, cy: bmp.height / 2, vw: 0, vh: 0 };
+function openCrop(bmp, r, c, name) {
+  crop = { bmp, name, rows: r, cols: c, z: 1, cx: bmp.width / 2, cy: bmp.height / 2, vw: 0, vh: 0 };
   dragFrom = null;
   cropZoom.value = '1';
   cropDialog.showModal();
@@ -495,10 +543,13 @@ function cutImage(bmp, r, rowCount, colCount) {
 // Adopt the cropped image: cut the pieces, close the dialog and start a solved, unshuffled puzzle.
 function cropDone() {
   const c = crop;
-  const cut = cutImage(c.bmp, cropRect(c), c.rows, c.cols);
+  const rect = cropRect(c);
+  const cut = cutImage(c.bmp, rect, c.rows, c.cols);
   if (image && image !== c.bmp) image.close();
   image = c.bmp;
   pieces = cut;
+  picture = rect;
+  caption = c.name;
   cropDialog.close();
   setSize(c.rows, c.cols);
 }
@@ -577,7 +628,68 @@ function loadSettings() {
 
 applyRange(gridRange(null));
 render();
-const settingsReady = loadSettings().then((s) => applyRange(gridRange(s)));
+const settingsReady = loadSettings().then((s) => applyRange(gridRange(s))).then(() => { if (flipped) drawBack(); });
+
+// Turn the board over: show its back (the solved puzzle in greyscale) or the front again. Game state is untouched.
+function flip() {
+  flipped = !flipped;
+  if (flipped) drawBack();
+  $('plate').classList.toggle('flipped', flipped);
+  $('frame').inert = flipped;
+  $('back').inert = !flipped;
+  $('flip').setAttribute('aria-pressed', String(flipped));
+  $('new').disabled = flipped;
+  $('shuffle').disabled = flipped;
+}
+
+// Paint the back for the current puzzle, fitted to the plate: the whole cropped picture or the solved number grid, and its caption.
+function drawBack() {
+  const isImage = !!(image && pieces);
+  const back = $('back'), cv = $('back-picture'), grid = $('back-grid'), cap = $('back-caption');
+  cap.textContent = isImage ? caption : 'Shuffle ' + rows + '×' + cols;
+  cv.hidden = !isImage;
+  grid.hidden = isImage;
+  const cs = getComputedStyle(back);
+  const freeW = back.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+  const freeH = back.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom) - cap.offsetHeight - parseFloat(cs.rowGap);
+  const A = cols / rows;
+  const w = Math.max(1, Math.floor(Math.min(freeW, freeH * A)));
+  const h = Math.max(1, Math.floor(w / A));
+  if (isImage) {
+    const dpr = window.devicePixelRatio || 1;
+    cv.style.width = w + 'px';
+    cv.style.height = h + 'px';
+    cv.width = Math.round(w * dpr);
+    cv.height = Math.round(h * dpr);
+    const g = cv.getContext('2d', { willReadFrequently: true });
+    g.drawImage(image, picture.sx, picture.sy, picture.cw, picture.ch, 0, 0, cv.width, cv.height);
+    greyscale(g, cv.width, cv.height);
+  } else {
+    grid.style.width = w + 'px';
+    grid.style.height = h + 'px';
+    grid.style.gridTemplateColumns = 'repeat(' + cols + ', 1fr)';
+    grid.style.gridTemplateRows = 'repeat(' + rows + ', 1fr)';
+    grid.style.fontSize = (0.42 * w / cols) + 'px';
+    grid.replaceChildren();
+    for (let i = 1; i <= rows * cols; i++) {
+      const cell = document.createElement('div');
+      cell.className = i === rows * cols ? 'back-cell empty' : 'back-cell';
+      cell.textContent = i === rows * cols ? '' : i;
+      grid.appendChild(cell);
+    }
+  }
+}
+
+// Replace each pixel with its Rec. 601 luma, so the back prints the solution in greyscale like a Pussycat back.
+function greyscale(g, w, h) {
+  const img = g.getImageData(0, 0, w, h);
+  const p = img.data;
+  for (let i = 0; i < p.length; i += 4) p[i] = p[i + 1] = p[i + 2] = Math.round(0.299 * p[i] + 0.587 * p[i + 1] + 0.114 * p[i + 2]);
+  g.putImageData(img, 0, 0);
+}
+
+$('flip').addEventListener('click', flip);
+window.addEventListener('resize', () => { if (flipped) drawBack(); });
 </script>
 </body>
 </html>

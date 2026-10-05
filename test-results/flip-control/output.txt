@@ -1,0 +1,24 @@
+1280x800 3x3: New-Shuffle gap 12.0, Shuffle-Flip gap 37.0, actions 479.7..800.3 of 1280
+1280x800 3x3 #flip colours: [[42,42,42],[18,18,18]]
+1280x800 10x10: New-Shuffle gap 12.0, Shuffle-Flip gap 37.0, actions 479.7..800.3 of 1280
+1280x800 10x10 #flip colours: [[42,42,42],[18,18,18]]
+1280x800 3x10: New-Shuffle gap 12.0, Shuffle-Flip gap 37.0, actions 479.7..800.3 of 1280
+1280x800 3x10 #flip colours: [[42,42,42],[18,18,18]]
+560x800 3x3: New-Shuffle gap 12.0, Shuffle-Flip gap 37.0, actions 119.7..440.3 of 560
+560x800 3x3 #flip colours: [[42,42,42],[18,18,18]]
+560x800 10x10: New-Shuffle gap 12.0, Shuffle-Flip gap 37.0, actions 119.7..440.3 of 560
+560x800 10x10 #flip colours: [[42,42,42],[18,18,18]]
+560x800 3x10: New-Shuffle gap 12.0, Shuffle-Flip gap 37.0, actions 119.7..440.3 of 560
+560x800 3x10 #flip colours: [[42,42,42],[18,18,18]]
+390x844 3x3: New-Shuffle gap 12.0, Shuffle-Flip gap 37.0, actions 34.7..355.3 of 390
+390x844 3x3 #flip colours: [[42,42,42],[18,18,18]]
+390x844 10x10: New-Shuffle gap 12.0, Shuffle-Flip gap 37.0, actions 34.7..355.3 of 390
+390x844 10x10 #flip colours: [[42,42,42],[18,18,18]]
+390x844 3x10: New-Shuffle gap 12.0, Shuffle-Flip gap 37.0, actions 34.7..355.3 of 390
+390x844 3x10 #flip colours: [[42,42,42],[18,18,18]]
+360x740 3x3: New-Shuffle gap 12.0, Shuffle-Flip gap 37.0, actions 19.7..340.3 of 360
+360x740 3x3 #flip colours: [[42,42,42],[18,18,18]]
+360x740 10x10: New-Shuffle gap 12.0, Shuffle-Flip gap 37.0, actions 19.7..340.3 of 360
+360x740 10x10 #flip colours: [[42,42,42],[18,18,18]]
+360x740 3x10: New-Shuffle gap 12.0, Shuffle-Flip gap 37.0, actions 19.7..340.3 of 360
+360x740 3x10 #flip colours: [[42,42,42],[18,18,18]]
