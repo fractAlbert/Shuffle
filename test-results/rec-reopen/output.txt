@@ -1,2 +1,2 @@
-portrait requested 9 times (preview and Start); reopening requested nothing more; selects 5,3, #preset empty
+portrait requested 8 times (preview and Start); reopening requested nothing more; selects 5,3, #preset empty
 delete then reopen: no request for the deleted file, no 404, no console output

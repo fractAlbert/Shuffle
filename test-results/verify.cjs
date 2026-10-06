@@ -302,6 +302,7 @@ async function canned(okBytes) {
   cs.server = http.createServer((req, res) => {
     const p = req.url.split('?')[0];
     cs.requests.push(p);
+    // #18: cs.extra(req, res, p) may answer a request first (held and redirecting images); it returns true when it did.
     if (cs.extra && cs.extra(req, res, p)) return;
     if (p === '/' || p === '/index.html') { res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' }); res.end(fs.readFileSync(path.join(ROOT, 'index.html'))); return; }
     if (p === '/images/') {
@@ -636,6 +637,7 @@ const waitPreview = (page, state = 'ready', fx = null) => page.waitForFunction((
   const q = cv.getBoundingClientRect();
   return Math.abs(q.width / q.height - a) <= 0.03 * a;
 }, [state, fx ? fx.W / fx.H : null]);
+// Poll a synchronous condition every 50ms until it holds; throw after ms.
 const until = async (fn, what, ms = 8000) => { const t0 = Date.now(); while (!fn()) { if (Date.now() - t0 > ms) throw new Error('timed out waiting for ' + what); await sleep(50); } };
 // Throw unless the shown preview of fixture fx at r x c is laid out, lit, dimmed and cut as plan I3 and I5 say.
 async function expectPreview(page, fx, r, c, dprWant, tag, say) {
@@ -685,6 +687,7 @@ async function expectPreview(page, fx, r, c, dprWant, tag, say) {
   say(`${tag}: css ${p.cssW}x${p.cssH}, store ${p.bw}x${p.bh} at dpr ${p.dpr}; lit rect (${x0.toFixed(1)}, ${y0.toFixed(1)})-(${x1.toFixed(1)}, ${y1.toFixed(1)}); ${lit.length} lit and ${dim.length} dim samples, worst lit error ${worst.toFixed(2)}; ${dimmed} dimmed px; ${vr.length}+${hr.length} cut lines`);
   return { p, o };
 }
+// Requests the #18 checks may make: the page, data:, blob: URLs of the page or a driver origin, and the app paths on a driver origin.
 const recAllowed = (u) => {
   if (u === PAGE_URL || u === 'data:,') return true;
   if (u.startsWith('blob:')) { const inner = u.slice(5); if (inner.startsWith('null/')) return true; try { return driverOrigins.has(new URL(inner).origin); } catch (_) { return false; } }
@@ -3239,6 +3242,7 @@ async function main() {
     await withPage(U(S['s-rec']), async (pg) => {
       await ready(pg);
       eq(await board(pg), solvedBoard(12), '(a) game after the settings arrive');
+      await gridOf(pg, 4, 3, '(a) game shape');
       for (const name of REC_FX) {
         const fx = FIX[name];
         await pg.click('#new');
@@ -3275,6 +3279,7 @@ async function main() {
         await ready(pg);
         ok(await isOpen(pg, 'new-dialog'), '(c) New dialog closed by the late settings');
         eq(await board(pg), solvedBoard(12), '(c) game after the settings arrive');
+        await gridOf(pg, 4, 3, '(c) game shape');
         eq(await pg.$$eval('#board canvas', (e) => e.length), 0, '(c) image game survived the settings');
         const p = await previewOf(pg);
         ok(p.hidden, '(c) preview still shown');
@@ -3547,7 +3552,8 @@ async function main() {
         await sleep(500);
         eq(await selectsOf(pg), [6, 4], '(c) selects after the old a arrived');
         eq((await previewOf(pg)).state, 'ready', '(c) state');
-        ok((await previewOf(pg)).cssH > (await previewOf(pg)).cssW, '(c) preview is not b (portrait)');
+        const pc = await previewOf(pg);
+        ok(pc.cssH > pc.cssW, '(c) preview is not b (portrait)');
         say('(c) a, Cancel, reopen, b, then a arrives: the selects follow b');
       });
       await withPage(cn.origin + '/', async (pg) => {

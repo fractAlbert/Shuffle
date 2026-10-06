@@ -1,5 +1,5 @@
 diff --git a/test-results/verify.cjs b/test-results/verify.cjs
-index f0f2435..c7c7f9d 100644
+index f0f2435..60be6b4 100644
 --- a/test-results/verify.cjs
 +++ b/test-results/verify.cjs
 @@ -1,4 +1,4 @@
@@ -8,15 +8,16 @@ index f0f2435..c7c7f9d 100644
  const fs = require('fs');
  const os = require('os');
  const path = require('path');
-@@ -302,6 +302,7 @@ async function canned(okBytes) {
+@@ -302,6 +302,8 @@ async function canned(okBytes) {
    cs.server = http.createServer((req, res) => {
      const p = req.url.split('?')[0];
      cs.requests.push(p);
++    // #18: cs.extra(req, res, p) may answer a request first (held and redirecting images); it returns true when it did.
 +    if (cs.extra && cs.extra(req, res, p)) return;
      if (p === '/' || p === '/index.html') { res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' }); res.end(fs.readFileSync(path.join(ROOT, 'index.html'))); return; }
      if (p === '/images/') {
        const r = cs.listing(++cs.count);
-@@ -553,10 +554,150 @@ async function expectBackImage(page, fx, o, r, c, tag, say, dprWant = 1) {
+@@ -553,10 +555,152 @@ async function expectBackImage(page, fx, o, r, c, tag, say, dprWant = 1) {
    say(`${tag}: canvas ${p.cssW}x${p.cssH} css, ${p.W}x${p.H} store at dpr ${p.dpr}; 0 non-grey; ${p.samples.length} samples, worst luma error ${worst.toFixed(2)}; cut steps ${p.stepX}/${p.stepY}`);
  }
  
@@ -102,6 +103,7 @@ index f0f2435..c7c7f9d 100644
 +  const q = cv.getBoundingClientRect();
 +  return Math.abs(q.width / q.height - a) <= 0.03 * a;
 +}, [state, fx ? fx.W / fx.H : null]);
++// Poll a synchronous condition every 50ms until it holds; throw after ms.
 +const until = async (fn, what, ms = 8000) => { const t0 = Date.now(); while (!fn()) { if (Date.now() - t0 > ms) throw new Error('timed out waiting for ' + what); await sleep(50); } };
 +// Throw unless the shown preview of fixture fx at r x c is laid out, lit, dimmed and cut as plan I3 and I5 say.
 +async function expectPreview(page, fx, r, c, dprWant, tag, say) {
@@ -151,6 +153,7 @@ index f0f2435..c7c7f9d 100644
 +  say(`${tag}: css ${p.cssW}x${p.cssH}, store ${p.bw}x${p.bh} at dpr ${p.dpr}; lit rect (${x0.toFixed(1)}, ${y0.toFixed(1)})-(${x1.toFixed(1)}, ${y1.toFixed(1)}); ${lit.length} lit and ${dim.length} dim samples, worst lit error ${worst.toFixed(2)}; ${dimmed} dimmed px; ${vr.length}+${hr.length} cut lines`);
 +  return { p, o };
 +}
++// Requests the #18 checks may make: the page, data:, blob: URLs of the page or a driver origin, and the app paths on a driver origin.
 +const recAllowed = (u) => {
 +  if (u === PAGE_URL || u === 'data:,') return true;
 +  if (u.startsWith('blob:')) { const inner = u.slice(5); if (inner.startsWith('null/')) return true; try { return driverOrigins.has(new URL(inner).origin); } catch (_) { return false; } }
@@ -167,7 +170,7 @@ index f0f2435..c7c7f9d 100644
  
    async function newPage(opts = {}, pageUrl = PAGE_URL) {
      const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 }, ...opts });
-@@ -1055,7 +1196,7 @@ async function main() {
+@@ -1055,7 +1199,7 @@ async function main() {
  
    await run('code-shape', async ({ say }) => {
      const html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
@@ -176,7 +179,7 @@ index f0f2435..c7c7f9d 100644
        const re = new RegExp('//[^\\n]*\\r?\\n\\s*function ' + f + '\\b');
        ok(re.test(html), `function ${f} missing or has no comment above`);
        say(`function ${f}: present with comment`);
-@@ -1359,13 +1500,14 @@ async function main() {
+@@ -1359,13 +1503,14 @@ async function main() {
      const fx = FIX['landscape.png'];
      await page.setInputFiles('#image-file', { name: fx.name, mimeType: fx.mimeType, buffer: fx.buffer });
      ok(await page.isChecked('#kind-image'), 'choosing a file did not check Image');
@@ -194,7 +197,7 @@ index f0f2435..c7c7f9d 100644
    });
  
    // image-sizes: C2. Every size 3..10 x 3..10 with an image: split, mapping, solved start.
-@@ -2112,7 +2254,7 @@ async function main() {
+@@ -2112,7 +2257,7 @@ async function main() {
      page.on('request', (r) => seen.push(r.url()));
      await page.goto(PAGE_URL);
      await flow(page, '(a) file://', 'Preset pictures need Shuffle served over HTTP (see README).', 'fallback-a-file.png');
@@ -203,7 +206,7 @@ index f0f2435..c7c7f9d 100644
      expectConsole(S.b.origin + '/images/');
      const NONE = 'No preset pictures found.';
      for (const [tag, srv, nm] of [['(b) 404', S.b, 'fallback-b-404.png'], ['(c) no links', S.c, 'fallback-c-nolinks.png'], ['(d) empty', S.d, 'fallback-d-empty.png']]) {
-@@ -3060,6 +3202,529 @@ async function main() {
+@@ -3060,6 +3205,532 @@ async function main() {
    }, { url: cn ? cn.origin + '/' : undefined });
    if (cn) cn.settings = null;
  
@@ -244,6 +247,7 @@ index f0f2435..c7c7f9d 100644
 +    await withPage(U(S['s-rec']), async (pg) => {
 +      await ready(pg);
 +      eq(await board(pg), solvedBoard(12), '(a) game after the settings arrive');
++      await gridOf(pg, 4, 3, '(a) game shape');
 +      for (const name of REC_FX) {
 +        const fx = FIX[name];
 +        await pg.click('#new');
@@ -280,6 +284,7 @@ index f0f2435..c7c7f9d 100644
 +        await ready(pg);
 +        ok(await isOpen(pg, 'new-dialog'), '(c) New dialog closed by the late settings');
 +        eq(await board(pg), solvedBoard(12), '(c) game after the settings arrive');
++        await gridOf(pg, 4, 3, '(c) game shape');
 +        eq(await pg.$$eval('#board canvas', (e) => e.length), 0, '(c) image game survived the settings');
 +        const p = await previewOf(pg);
 +        ok(p.hidden, '(c) preview still shown');
@@ -552,7 +557,8 @@ index f0f2435..c7c7f9d 100644
 +        await sleep(500);
 +        eq(await selectsOf(pg), [6, 4], '(c) selects after the old a arrived');
 +        eq((await previewOf(pg)).state, 'ready', '(c) state');
-+        ok((await previewOf(pg)).cssH > (await previewOf(pg)).cssW, '(c) preview is not b (portrait)');
++        const pc = await previewOf(pg);
++        ok(pc.cssH > pc.cssW, '(c) preview is not b (portrait)');
 +        say('(c) a, Cancel, reopen, b, then a arrives: the selects follow b');
 +      });
 +      await withPage(cn.origin + '/', async (pg) => {
@@ -733,7 +739,7 @@ index f0f2435..c7c7f9d 100644
    // preset-requests: AC6. The Python servers only ever saw the page and images/.
    await run('preset-requests', async ({ say }) => {
      need();
-@@ -3189,6 +3854,7 @@ async function main() {
+@@ -3189,6 +3860,7 @@ async function main() {
      ok(requests.length > 0, 'no requests captured');
      const allowed = (u) => {
        if (u === PAGE_URL || u === 'data:,') return true;

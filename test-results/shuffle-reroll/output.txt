@@ -1,3 +1,3 @@
-solved first draw: draws 40, board 8,6,3,7,5,1,4,2,0
-unsolvable first draw: draws 24, board 3,1,7,5,8,4,2,0,6
+solved first draw: draws 16, board 7,8,4,2,0,1,6,3,5
+unsolvable first draw: draws 24, board 1,0,6,8,5,3,7,4,2
 Math.random restored: true

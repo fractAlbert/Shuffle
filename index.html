@@ -740,13 +740,17 @@ function loadPreview() {
     const img = new Image();
     const src = URL.createObjectURL(b);
     img.src = src;
-    return img.decode().then(() => ({ img, url: src }), (e) => { URL.revokeObjectURL(src); throw e; });
+    return img.decode().then(() => {
+      if (img.naturalWidth > 0 && img.naturalHeight > 0) return { img, url: src };
+      URL.revokeObjectURL(src);
+      throw new Error('no natural size');
+    }, (e) => { URL.revokeObjectURL(src); throw e; });
   }).then((p) => {
     if (!p) return;
     if (id !== previewId || !newDialog.open) { URL.revokeObjectURL(p.url); return; }
     setPreview(p);
     previewStatus = 'ready';
-    if (!sized) {
+    if (!sized && $('kind-image').checked) {
       const [r, c] = recommend(p.img.naturalWidth, p.img.naturalHeight);
       $('rows').value = String(r);
       $('cols').value = String(c);
@@ -758,7 +762,7 @@ function loadPreview() {
 // Paint the preview: the whole picture fitted to the dialog, the default crop for the chosen size lit with its cut lines, the overflow dimmed.
 function drawPreview() {
   const cv = $('new-preview');
-  const chosen = $('preset').value || $('image-file').files.length;
+  const chosen = Boolean($('preset').value || $('image-file').files.length);
   const pic = !$('kind-image').checked ? null : chosen ? (preview && preview.img) : image;
   cv.hidden = !pic;
   cv.dataset.state = chosen ? previewStatus : pic ? 'current' : 'none';
