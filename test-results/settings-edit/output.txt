@@ -2,5 +2,5 @@
 (b) file rewritten, reload: rows [5], cols 7..9, board 5x7
 (c) 8x12: 96 tiles, 12 columns, 8 rows; legal and row-wrap clicks match slideOracle; 3 shuffles oracle-solvable and unsolved
 (d) 4x12 image: 47 pieces match the oracle (worst 1.17px)
-(e) 360x740 12x12: tile 21.4px, message bottom 527 of 740
-(e) 1280x800 12x12: tile 43.9px, message bottom 771 of 800
+(e) 360x740 12x12: tile 21.4px, message bottom 547 of 740
+(e) 1280x800 12x12: tile 41.9px, message bottom 767 of 800

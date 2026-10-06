@@ -1,1 +1,1 @@
-10x10 panel 563px at 1280, 286px at 360, layout holds at each
+10x10 panel 539px at 1280, 286px at 360, layout holds at each

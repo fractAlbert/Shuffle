@@ -1,0 +1,4 @@
+Shuffle: message hidden, moves 0, timer 0, unlocked, legal click gives moves 1
+New (numbers 3x3): solved at moves 0, unlocked, click 7 gives moves 1, message hidden
+New then Cancel: still locked, message visible, click ignored
+New image: unlocked and playable; 4x4 New: message hidden at moves 0
