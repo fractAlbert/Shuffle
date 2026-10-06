@@ -1,1 +1,1 @@
-load hidden (moves 0); solve visible (moves 2); away hidden (moves 3); re-solve visible (moves 4)
+load hidden (moves 0); solve visible (moves 2); further clicks ignored, message stays (moves 2)

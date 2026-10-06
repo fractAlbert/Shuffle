@@ -290,5 +290,5 @@ style greps ok: container-type, 100cqi, 100svh; no repeat(3, 90px, 100vw
 #shuffle not green: [[245,245,242],[42,42,42],[18,18,18]]
 #moves not green: [[28,26,23]]
 #timer not green: [[28,26,23]]
-#message not green: [[28,26,23]]
+#message not green: [[245,245,242],[36,36,36],[22,22,22],[16,16,16]]
 #new not green: [[245,245,242],[42,42,42],[18,18,18]]

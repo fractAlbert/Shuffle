@@ -1,4 +1,4 @@
-// Verification driver (test tooling, not app code). See plan section 6 of issues #1, #2, #3, #4, #5, #7, #13, #14, #15 and #18.
+// Verification driver (test tooling, not app code). See plan section 6 of issues #1, #2, #3, #4, #5, #7, #13, #14, #15, #17, #18 and #20.
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -11,7 +11,8 @@ const { chromium } = require(process.env.PW_DIR);
 
 const ROOT = process.cwd();
 const OUT = path.join(ROOT, 'test-results');
-const PAGE_URL = url.pathToFileURL(path.resolve('index.html')).href;
+const SITE = path.join(ROOT, 'Site'); // the served site: index.html, settings.json and images/ (#20)
+const PAGE_URL = url.pathToFileURL(path.join(SITE, 'index.html')).href;
 // Change-set base for single-file and logic-unchanged; requires a fresh `git fetch origin main` first.
 const BASE = execSync('git merge-base origin/main HEAD', { encoding: 'utf8' }).trim();
 const lines = [];
@@ -27,6 +28,8 @@ const board = (page) => page.$$eval('#board .tile', (els) => els.map((e) => (e.c
 const movesOf = async (page) => Number((await page.textContent('#moves')).match(/\d+/)[0]);
 const timerOf = async (page) => Number((await page.textContent('#timer')).match(/(\d+)s/)[1]);
 const click = (page, i) => page.click(`#board .tile[data-index="${i}"]`);
+// Click that skips Playwright's enabled check, for locked tiles (aria-disabled): the page itself must ignore it.
+const fclick = (page, i) => page.click(`#board .tile[data-index="${i}"]`, { force: true });
 const SOLVED = ['1', '2', '3', '4', '5', '6', '7', '8', '_'];
 const shot = (page, dir, name = 'screenshot.png') => page.screenshot({ path: path.join(dir, name) });
 
@@ -247,7 +250,7 @@ async function expectCrop(page, fx, r, c, z, cx, cy, tag, say) {
   say(`${tag}: crop sx ${o.sx.toFixed(1)} sy ${o.sy.toFixed(1)} cw ${o.cw.toFixed(1)} ch ${o.ch.toFixed(1)}; preview error ${worstPrev.toFixed(2)}px; ${pc.count} pieces, worst error ${pc.worst.toFixed(2)}px`);
 }
 
-// ---- #13 helpers. The real `python -m http.server` serves the repo root and the fixture roots; a canned Node server is used only for hostile, delayed and redirecting listings. ----
+// ---- #13 helpers. The real `python -m http.server` serves Site/ and the fixture roots; a canned Node server is used only for hostile, delayed and redirecting listings. ----
 // Expectations below come from plan #13 sections 2 (D2, D7) and 6, never from the app's code.
 const R1 = /\.(jpe?g|png|webp|gif|avif)$/i;
 const stemOf = (f) => f.replace(/\.[^.]+$/, '');
@@ -304,7 +307,7 @@ async function canned(okBytes) {
     cs.requests.push(p);
     // #18: cs.extra(req, res, p) may answer a request first (held and redirecting images); it returns true when it did.
     if (cs.extra && cs.extra(req, res, p)) return;
-    if (p === '/' || p === '/index.html') { res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' }); res.end(fs.readFileSync(path.join(ROOT, 'index.html'))); return; }
+    if (p === '/' || p === '/index.html') { res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' }); res.end(fs.readFileSync(path.join(SITE, 'index.html'))); return; }
     if (p === '/images/') {
       const r = cs.listing(++cs.count);
       setTimeout(() => { res.writeHead(r.status || 200, { 'Content-Type': 'text/html; charset=utf-8', ...(r.headers || {}) }); res.end(r.body || ''); }, r.delay || 0);
@@ -313,7 +316,7 @@ async function canned(okBytes) {
     if (p === '/images/ok.png') { res.writeHead(200, { 'Content-Type': 'image/png' }); res.end(okBytes); return; }
     if (p === '/settings.json') {
       const r = cs.settings ? cs.settings() : {};
-      setTimeout(() => { res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(r.body !== undefined ? r.body : fs.readFileSync(path.join(ROOT, 'settings.json'))); }, r.delay || 0);
+      setTimeout(() => { res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(r.body !== undefined ? r.body : fs.readFileSync(path.join(SITE, 'settings.json'))); }, r.delay || 0);
       return;
     }
     res.writeHead(404, { 'Content-Type': 'text/plain' });
@@ -383,7 +386,7 @@ function slideOracle(r, c, clicks) {
 function settingsRoot(name, body) {
   const dir = path.join(tmpRoot, name);
   fs.mkdirSync(path.join(dir, 'images'), { recursive: true });
-  fs.writeFileSync(path.join(dir, 'index.html'), fs.readFileSync(path.join(ROOT, 'index.html')));
+  fs.writeFileSync(path.join(dir, 'index.html'), fs.readFileSync(path.join(SITE, 'index.html')));
   if (body !== null) fs.writeFileSync(path.join(dir, 'settings.json'), body);
   return dir;
 }
@@ -1006,15 +1009,17 @@ async function main() {
     eq((await msg.textContent()).trim(), 'You solved it!', 'text after click 2');
     eq(await movesOf(page), 2, 'moves after solve');
     await shot(page, dir, 'screenshot-3.png');
-    await click(page, 7);
-    ok(!(await msg.isVisible()), 'message visible after moving away');
-    eq(await movesOf(page), 3, 'moves after moving away');
+    await fclick(page, 5);
+    ok(await msg.isVisible(), 'message hidden after a further click');
+    eq(await board(page), SOLVED, 'board after a further click');
+    eq(await movesOf(page), 2, 'moves after a further click');
     await shot(page, dir, 'screenshot-4.png');
-    await click(page, 8);
-    ok(await msg.isVisible(), 'message hidden after re-solve');
-    eq(await movesOf(page), 4, 'moves after re-solve');
+    await fclick(page, 7);
+    eq(await board(page), SOLVED, 'board after click 7 on the solved board');
+    ok(await msg.isVisible(), 'message hidden after click 7 on the solved board');
+    eq(await movesOf(page), 2, 'moves after click 7 on the solved board');
     await shot(page, dir, 'screenshot-5.png');
-    say('load hidden (moves 0); solve visible (moves 2); away hidden (moves 3); re-solve visible (moves 4)');
+    say('load hidden (moves 0); solve visible (moves 2); further clicks ignored, message stays (moves 2)');
   });
 
   // no-win-at-zero-moves: AC3 (#5), a solved board at Moves 0 (as after Shuffle) shows no message.
@@ -1086,7 +1091,7 @@ async function main() {
 
   // look: AC1, AC3, D3 (#7). Computed-style and geometry assertions on the Pussycat look.
   await run('look', async ({ page, dir, say }) => {
-    const html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
+    const html = fs.readFileSync(path.join(SITE, 'index.html'), 'utf8');
     const css = (html.match(/<style>([\s\S]*?)<\/style>/) || ['', ''])[1];
     ok(css.includes('container-type: inline-size'), 'style lacks container-type: inline-size');
     ok(css.includes('100cqi'), 'style lacks 100cqi');
@@ -1198,8 +1203,8 @@ async function main() {
   }
 
   await run('code-shape', async ({ say }) => {
-    const html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
-    for (const f of ['render', 'move', 'setSize', 'shuffle', 'isSolvable', 'isSolved', 'checkWin', 'openNew', 'startNew', 'onDecoded', 'onRejected', 'cropRect', 'openCrop', 'drawCrop', 'moveCrop', 'cutImage', 'cropDone', 'loadPresets', 'parseListing', 'onListed', 'gridRange', 'applyRange', 'loadSettings', 'flip', 'drawBack', 'greyscale', 'presetBlob', 'recommend', 'setPreview', 'loadPreview', 'drawPreview']) {
+    const html = fs.readFileSync(path.join(SITE, 'index.html'), 'utf8');
+    for (const f of ['render', 'move', 'setSize', 'shuffle', 'isSolvable', 'isSolved', 'checkWin', 'openNew', 'startNew', 'onDecoded', 'onRejected', 'cropRect', 'openCrop', 'drawCrop', 'moveCrop', 'cutImage', 'cropDone', 'loadPresets', 'parseListing', 'onListed', 'gridRange', 'applyRange', 'loadSettings', 'flip', 'drawBack', 'greyscale', 'isLocked', 'presetBlob', 'recommend', 'setPreview', 'loadPreview', 'drawPreview']) {
       const re = new RegExp('//[^\\n]*\\r?\\n\\s*function ' + f + '\\b');
       ok(re.test(html), `function ${f} missing or has no comment above`);
       say(`function ${f}: present with comment`);
@@ -2013,15 +2018,15 @@ async function main() {
   const S = {};
   let srvErr = null;
   let cn = null;
-  const realFiles = fs.readdirSync(path.join(ROOT, 'images')).filter((f) => R1.test(f));
+  const realFiles = fs.readdirSync(path.join(SITE, 'images')).filter((f) => R1.test(f));
   const A_NAMES = ['Grad – Landscape ’1’', 'portrait', 'Plain', 'Shot', 'Anim', 'Next', 'UPPER', '50% #1', "Bust (detail) 'x'", 'broken'];
   const A_IGNORED = ['notes', 'readme', 'noext', 'archive.jpg', '.hidden', 'sub', 'inner'];
   try {
     tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'shuffle-http-'));
-    const indexBytes = fs.readFileSync(path.join(ROOT, 'index.html'));
+    const indexBytes = fs.readFileSync(path.join(SITE, 'index.html'));
     const put = (root, rel, bytes) => { const f = path.join(tmpRoot, root, rel); fs.mkdirSync(path.dirname(f), { recursive: true }); fs.writeFileSync(f, bytes); };
     for (const r of ['A', 'B', 'C', 'D']) put(r, 'index.html', indexBytes);
-    const shippedSettings = fs.readFileSync(path.join(ROOT, 'settings.json'));
+    const shippedSettings = fs.readFileSync(path.join(SITE, 'settings.json'));
     for (const r of ['A', 'B', 'C', 'D']) put(r, 'settings.json', shippedSettings);
     ok(Buffer.compare(fs.readFileSync(path.join(tmpRoot, 'A', 'index.html')), indexBytes) === 0, 'A/index.html is not a byte copy');
     put('A', 'images/Grad – Landscape ’1’.png', FIX['landscape.png'].buffer);
@@ -2032,7 +2037,7 @@ async function main() {
     put('C', 'images/index.html', '<p>no listing</p>');
     fs.mkdirSync(path.join(tmpRoot, 'D', 'images'), { recursive: true });
     const frag = (realFiles[0] || 'x').match(/[A-Za-z]{4,}/)[0];
-    S.real = await serve(ROOT, async (o) => { const r = await httpGet(o + '/images/'); return r.status === 200 && r.body.includes(frag); });
+    S.real = await serve(SITE, async (o) => { const r = await httpGet(o + '/images/'); return r.status === 200 && r.body.includes(frag); });
     S.a = await serve(path.join(tmpRoot, 'A'), async (o) => { const r = await httpGet(o + '/images/'); return r.status === 200 && r.body.includes('portrait'); });
     S.b = await serve(path.join(tmpRoot, 'B'), async (o) => (await httpGet(o + '/images/')).status === 404);
     S.c = await serve(path.join(tmpRoot, 'C'), async (o) => (await httpGet(o + '/images/')).body.includes('no listing'));
@@ -2455,7 +2460,7 @@ async function main() {
     say('302 to another origin: treated as unavailable, no request to example.invalid; canned requests ' + JSON.stringify(cn.requests));
   });
 
-  // ---- #14 grid size settings. Servers are the s-* fixture roots, the repo root and the canned server (settings-late only). ----
+  // ---- #14 grid size settings. Servers are the s-* fixture roots, Site/ and the canned server (settings-late only). ----
   // A page with its own request list, also feeding the shared request and console capture.
   async function watched(pageUrl) {
     const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 } });
@@ -2471,7 +2476,7 @@ async function main() {
   // settings-shipped: AC1. The shipped settings.json offers 3..10 for both, every size plays, a preset works at 10x10.
   await run('settings-shipped', async ({ page, dir, say }) => {
     need();
-    const text = fs.readFileSync(path.join(ROOT, 'settings.json'), 'utf8').replace(/\r\n/g, '\n');
+    const text = fs.readFileSync(path.join(SITE, 'settings.json'), 'utf8').replace(/\r\n/g, '\n');
     eq(text, SHIPPED_TEXT, 'settings.json text');
     const hits = () => S.real.log.filter((e) => e.path === '/settings.json' && e.code === 200).length;
     const n0 = hits();
@@ -2732,8 +2737,8 @@ async function main() {
     const section = end === -1 ? rest : rest.slice(0, end);
     const m = section.match(/```json\n([\s\S]*?)```/);
     ok(m, 'no ```json block in the Settings section');
-    eq(JSON.parse(m[1]), JSON.parse(fs.readFileSync(path.join(ROOT, 'settings.json'), 'utf8')), 'README json block against settings.json');
-    for (const w of ['settings.json', 'rows', 'columns', 'min', 'max', '12', 'http', 'file://']) ok(section.includes(w), `Settings section lacks "${w}"`);
+    eq(JSON.parse(m[1]), JSON.parse(fs.readFileSync(path.join(SITE, 'settings.json'), 'utf8')), 'README json block against settings.json');
+    for (const w of ['Site/settings.json', 'rows', 'columns', 'min', 'max', '12', 'http', 'file://']) ok(section.includes(w), `Settings section lacks "${w}"`);
     say('README Settings section: after Run, json block equals settings.json, keywords present');
   }, { shoot: false });
 
@@ -3789,9 +3794,315 @@ async function main() {
   // readme-run: R8. The README says how to run it over HTTP.
   await run('readme-run', async ({ say }) => {
     const readme = fs.readFileSync(path.join(ROOT, 'README.md'), 'utf8');
-    ok(readme.includes('python -m http.server 8000'), 'README lacks python -m http.server 8000');
+    ok(readme.includes('python -m http.server 8000 --directory Site'), 'README lacks python -m http.server 8000 --directory Site');
     ok(readme.includes('http://localhost:8000/'), 'README lacks http://localhost:8000/');
     say('README has the run command and the URL');
+  }, { shoot: false });
+
+  // ---- #17 lock the solved puzzle and show a prominent win banner. Each check uses reduced motion unless it is about motion. ----
+  // On a fresh solved board, slide the last tile left and back: a real solve in 2 moves.
+  const solveUI = async (page, r, c) => { await click(page, r * c - 2); await click(page, r * c - 1); };
+  // Board labels, moves, timer, banner and lock flags, plus the cursor and aria-disabled of the first non-empty tile.
+  const lockState = async (page) => {
+    const t = await page.$eval('#board .tile:not(.empty)', (e) => ({ cursor: getComputedStyle(e).cursor, aria: e.getAttribute('aria-disabled') }));
+    return { labels: await imgBoard(page), moves: await movesOf(page), timer: await timerOf(page), msg: await page.$eval('#message', (e) => !e.hidden), locked: await page.$eval('#board', (e) => e.classList.contains('locked')), cursor: t.cursor, aria: t.aria };
+  };
+  // Hover tile i and read its computed filter.
+  const hoverFilter = async (page, i) => { await page.hover(`#board .tile[data-index="${i}"]`); return page.$eval(`#board .tile[data-index="${i}"]`, (e) => getComputedStyle(e).filter); };
+  // On a 3x3 board only: the index of a tile beside the gap in the same row, so clicking it is a legal move.
+  const legalIndex3x3 = async (page) => { const e = (await board(page)).indexOf('_'); return e % 3 ? e - 1 : e + 1; };
+
+  // win-lock: AC1. A solved board ignores clicks, double clicks, keys, mouse and touch; the cue is visible; Flip still works.
+  await run('win-lock', async ({ page, dir, say }) => {
+    await reduce(page);
+    // (a) numbers 3x3
+    eq(await style(page, '#board .tile[data-index="5"]', 'cursor'), 'pointer', 'cursor before the solve');
+    eq(await hoverFilter(page, 5), 'brightness(1.04)', 'hover filter before the solve');
+    await solveUI(page, 3, 3);
+    const s0 = await lockState(page);
+    eq(s0.labels, SOLVED, 'board after solve');
+    eq(s0.moves, 2, 'moves after solve');
+    ok(s0.msg, 'message hidden after solve');
+    ok(s0.locked, '#board lacks .locked after solve');
+    eq(s0.cursor, 'default', 'cursor on a non-empty tile when locked');
+    eq(s0.aria, 'true', 'aria-disabled when locked');
+    eq(await page.$$eval('#board .tile:not(.empty)', (els) => els.filter((e) => e.getAttribute('aria-disabled') !== 'true').length), 0, 'tiles without aria-disabled');
+    eq(await hoverFilter(page, 5), 'none', 'hover filter when locked');
+    const T = s0.timer;
+    await shot(page, dir, 'locked-numbers.png');
+    for (let i = 0; i < 9; i++) await fclick(page, i);
+    await page.dblclick('#board .tile[data-index="7"]', { force: true });
+    await page.focus('#board .tile[data-index="7"]');
+    await page.keyboard.press('Enter');
+    await page.keyboard.press('Space');
+    const c5 = await centreOf(page, '#board .tile[data-index="5"]');
+    await page.mouse.click(c5.x, c5.y);
+    await sleep(1200);
+    const s1 = await lockState(page);
+    eq(s1, { ...s0, timer: T }, 'state after every input on the locked numbers board');
+    say(`numbers: ${JSON.stringify(s1)}; clicks 0..8, dblclick, Enter, Space and a mouse click ignored; timer stayed ${T}`);
+    // touch
+    await withPage(PAGE_URL, async (pg) => {
+      await solveUI(pg, 3, 3);
+      const a = await lockState(pg);
+      const c = await centreOf(pg, '#board .tile[data-index="5"]');
+      await pg.touchscreen.tap(c.x, c.y);
+      await sleep(300);
+      eq(await lockState(pg), a, 'state after a tap on the locked board');
+    }, { hasTouch: true, reducedMotion: 'reduce' });
+    say('touch tap ignored');
+    // (c) both faces
+    await flipUI(page);
+    await flipUI(page);
+    ok(!(await page.$eval('#flip', (e) => e.disabled)), '#flip disabled while locked');
+    await fclick(page, 7);
+    await fclick(page, 8);
+    eq(await lockState(page), { ...s0, timer: T }, 'state after flipping twice and clicking 7 and 8');
+    say('flip twice, then clicks ignored; #flip enabled');
+    // (b) image 3x3
+    await newImageUI(page, 3, 3, 'landscape.png');
+    await cropDoneUI(page);
+    await solveUI(page, 3, 3);
+    const labels = await imgBoard(page), px = await pieceSample(page);
+    const i0 = await lockState(page);
+    eq(i0.moves, 2, 'image moves after solve');
+    ok(i0.msg && i0.locked, 'image: message or lock missing');
+    eq(i0.cursor, 'default', 'image: cursor on a non-empty tile when locked');
+    eq(i0.aria, 'true', 'image: aria-disabled when locked');
+    eq(await hoverFilter(page, 5), 'none', 'image: hover filter when locked');
+    for (let i = 0; i < 9; i++) await fclick(page, i);
+    await page.dblclick('#board .tile[data-index="7"]', { force: true });
+    await page.focus('#board .tile[data-index="7"]');
+    await page.keyboard.press('Enter');
+    await page.keyboard.press('Space');
+    const ic5 = await centreOf(page, '#board .tile[data-index="5"]');
+    await page.mouse.click(ic5.x, ic5.y);
+    eq(await imgBoard(page), labels, 'image labels after every input');
+    eq(await pieceSample(page), px, 'image pieces after every input');
+    eq((await lockState(page)).moves, 2, 'image moves after every input');
+    await shot(page, dir, 'locked-image.png');
+    say('image 3x3: lock cues shown; labels, pieces and moves unchanged after clicks 0..8, dblclick, Enter, Space and a mouse click');
+  });
+
+  // win-unlock: AC2, AC5. Shuffle and New unlock; cancelling New keeps the lock.
+  await run('win-unlock', async ({ page, say }) => {
+    await reduce(page);
+    const msg = page.locator('#message');
+    await solveUI(page, 3, 3);
+    ok(await msg.isVisible(), 'setup: message hidden after solve');
+    await page.click('#shuffle');
+    ok(!(await msg.isVisible()), 'message visible after Shuffle');
+    eq(await movesOf(page), 0, 'moves after Shuffle');
+    eq(await timerOf(page), 0, 'timer after Shuffle');
+    ok(!(await page.$eval('#board', (e) => e.classList.contains('locked'))), '.locked after Shuffle');
+    await click(page, await legalIndex3x3(page));
+    eq(await movesOf(page), 1, 'moves after a legal click following Shuffle');
+    say('Shuffle: message hidden, moves 0, timer 0, unlocked, legal click gives moves 1');
+    await setSizeUI(page, 3, 3);
+    await solveUI(page, 3, 3);
+    ok(await msg.isVisible(), 'setup 2: message hidden after solve');
+    await setSizeUI(page, 3, 3);
+    ok(!(await msg.isVisible()), 'message visible after New');
+    eq(await board(page), SOLVED, 'board after New');
+    eq(await movesOf(page), 0, 'moves after New');
+    ok(!(await page.$eval('#board', (e) => e.classList.contains('locked'))), '.locked after New');
+    await click(page, 7);
+    eq(await movesOf(page), 1, 'moves after click 7 following New');
+    ok(!(await msg.isVisible()), 'message visible after one move');
+    say('New (numbers 3x3): solved at moves 0, unlocked, click 7 gives moves 1, message hidden');
+    await click(page, 8);
+    ok(await msg.isVisible(), 'setup 3: message hidden after solve');
+    await page.click('#new');
+    await page.click('#new-cancel');
+    await page.waitForFunction(() => !document.getElementById('new-dialog').open);
+    ok(await msg.isVisible(), 'message hidden after New then Cancel');
+    ok(await page.$eval('#board', (e) => e.classList.contains('locked')), 'lock lost after New then Cancel');
+    await fclick(page, 5);
+    eq(await movesOf(page), 2, 'moves after a click following Cancel');
+    eq(await board(page), SOLVED, 'board after a click following Cancel');
+    say('New then Cancel: still locked, message visible, click ignored');
+    await newImageUI(page, 3, 3, 'landscape.png');
+    await cropDoneUI(page);
+    ok(!(await msg.isVisible()), 'message visible after New image');
+    ok(!(await page.$eval('#board', (e) => e.classList.contains('locked'))), '.locked after New image');
+    await click(page, 7);
+    eq(await movesOf(page), 1, 'moves after a click following New image');
+    await click(page, 8);
+    ok(await msg.isVisible(), 'image: message hidden after solve');
+    await setSizeUI(page, 4, 4);
+    ok(!(await msg.isVisible()), 'message visible after a 4x4 New');
+    eq(await movesOf(page), 0, 'moves after a 4x4 New');
+    say('New image: unlocked and playable; 4x4 New: message hidden at moves 0');
+  });
+
+  // win-banner: AC3. A large, bold, white script banner on dark plastic, at 1280 and 360 wide.
+  await run('win-banner', async ({ page, dir, say }) => {
+    await reduce(page);
+    for (const [w, h] of [[1280, 800], [360, 740]]) {
+      await page.setViewportSize({ width: w, height: h });
+      await setSizeUI(page, 3, 3);
+      await solveUI(page, 3, 3);
+      const tag = `${w}x${h}`;
+      ok(await page.locator('#message').isVisible(), tag + ': message hidden');
+      const fm = parseFloat(await style(page, '#message', 'fontSize')), fsMoves = parseFloat(await style(page, '#moves', 'fontSize'));
+      ok(fm >= 1.75 * fsMoves, `${tag}: message font ${fm}px not at least 1.75x the status ${fsMoves}px`);
+      ok(Number(await style(page, '#message', 'fontWeight')) >= 700, tag + ': font weight');
+      eq(await style(page, '#message', 'fontStyle'), 'italic', tag + ': font-style');
+      eq(await style(page, '#message', 'fontFamily'), await style(page, 'h1.brand', 'fontFamily'), tag + ': font family against the title');
+      const tc = rgbOf(await style(page, '#message', 'color'));
+      ok(tc.every((v) => v >= 230), `${tag}: text colour ${tc}`);
+      const bg = await colours(page, '#message');
+      nonVacuous(bg, tag + ' #message', say);
+      ok(bg.every((c) => maxc(c) <= 48), `${tag}: a background colour is not dark plastic: ${JSON.stringify(bg)}`);
+      const ratio = (lum(tc) + 0.05) / (Math.max(...bg.map(lum)) + 0.05);
+      ok(ratio >= 7, `${tag}: contrast ${ratio.toFixed(2)} below 7`);
+      ok(!isGreen(tc) && !bg.some(isGreen), tag + ': green');
+      say(`${tag}: font ${fm}px against ${fsMoves}px, contrast ${ratio.toFixed(1)}`);
+      await shot(page, dir, `solved-${w}.png`);
+    }
+  });
+
+  // win-banner-motion: AC3. A short pop on a solve, none under reduced motion.
+  await run('win-banner-motion', async ({ page, dir, say }) => {
+    // The solve clicks and the first reading are in one page task, so a slow machine cannot let the 0.35s animation finish first.
+    const info = await page.evaluate(() => {
+      const msg = document.getElementById('message');
+      document.querySelector('#board .tile[data-index="7"]').click();
+      document.querySelector('#board .tile[data-index="8"]').click();
+      const a = msg.getAnimations();
+      const out = { n: a.length, names: a.map((x) => x.animationName), state: a.map((x) => x.playState), dur: parseFloat(getComputedStyle(msg).animationDuration) };
+      a.forEach((x) => { x.pause(); x.currentTime = 100; });
+      return out;
+    });
+    eq({ n: info.n, names: info.names, state: info.state }, { n: 1, names: ['win-pop'], state: ['running'] }, 'the win animation');
+    ok(info.dur > 0, 'animation duration ' + info.dur);
+    await shot(page, dir, 'mid-pop.png');
+    await page.evaluate(() => document.getElementById('message').getAnimations().forEach((x) => x.play()));
+    await page.waitForFunction(() => document.getElementById('message').getAnimations().length === 0);
+    eq(await style(page, '#message', 'opacity'), '1', 'opacity after the pop');
+    say(`one running win-pop animation, ${info.dur}s; opacity 1 when finished`);
+    await withPage(PAGE_URL, async (pg) => {
+      const r = await pg.evaluate(() => {
+        const msg = document.getElementById('message');
+        document.querySelector('#board .tile[data-index="7"]').click();
+        document.querySelector('#board .tile[data-index="8"]').click();
+        return { shown: !msg.hidden, name: getComputedStyle(msg).animationName, n: msg.getAnimations().length, op: getComputedStyle(msg).opacity };
+      });
+      eq(r, { shown: true, name: 'none', n: 0, op: '1' }, 'reduced motion: banner at once');
+    }, { reducedMotion: 'reduce' });
+    say('reduced motion: animation none, no animations, opacity 1 at once');
+  }, { video: true });
+
+  // win-a11y: AC4. A polite live region sits in the accessibility tree before the banner appears and holds the text after.
+  await run('win-a11y', async ({ page, say }) => {
+    await reduce(page);
+    const attrs = await page.$eval('#win', (e) => ({ role: e.getAttribute('role'), live: e.getAttribute('aria-live'), atomic: e.getAttribute('aria-atomic'), isParent: document.getElementById('message').parentElement === e }));
+    eq(attrs, { role: 'status', live: 'polite', atomic: 'true', isParent: true }, '#win attributes');
+    const cdp = await page.context().newCDPSession(page);
+    const readLive = async () => {
+      const { nodes } = await cdp.send('Accessibility.getFullAXTree');
+      const byId = new Map(nodes.map((n) => [n.nodeId, n]));
+      const node = nodes.find((n) => !n.ignored && n.role && n.role.value === 'status' && (n.properties || []).some((p) => p.name === 'live' && p.value.value === 'polite'));
+      if (!node) return null;
+      const texts = [];
+      const walk = (n) => { for (const id of n.childIds || []) { const ch = byId.get(id); if (!ch) continue; if (ch.role && ch.role.value === 'StaticText' && ch.name) texts.push(ch.name.value); walk(ch); } };
+      walk(node);
+      return texts;
+    };
+    const before = await readLive();
+    ok(before !== null, 'no non-ignored status node with live=polite before the solve');
+    ok(!before.join(' ').includes('You solved it!'), 'text in the live region before the solve: ' + before.join('|'));
+    await solveUI(page, 3, 3);
+    const after = await readLive();
+    ok(after !== null, 'live region gone after the solve');
+    ok(after.join(' ').includes('You solved it!'), 'text in the live region after the solve: ' + JSON.stringify(after));
+    say(`status/polite node present before (texts ${JSON.stringify(before)}) and after (texts ${JSON.stringify(after)})`);
+  }, { shoot: false });
+
+  // win-sizes: AC4, AC6. At every size, on a solve the banner stays in the viewport, off the board, and nothing moves or scrolls. Classic scrollbars.
+  {
+    const name = 'win-sizes';
+    const dir = path.join(OUT, name);
+    fs.rmSync(dir, { recursive: true, force: true });
+    fs.mkdirSync(dir, { recursive: true });
+    const log = [];
+    const sb = await chromium.launch({ channel: 'chrome', headless: true, ignoreDefaultArgs: ['--hide-scrollbars'] });
+    try {
+      for (const [w, h] of [[1280, 800], [360, 740]]) {
+        const ctx = await sb.newContext({ viewport: { width: w, height: h } });
+        const page = await ctx.newPage();
+        page.on('request', (r) => requests.push(r.url()));
+        page.on('pageerror', (e) => errors.push({ text: 'pageerror: ' + e.message, url: '' }));
+        page.on('console', (m) => { if (m.type() === 'error') errors.push({ text: 'console: ' + m.text(), url: m.location().url }); });
+        await page.goto(PAGE_URL);
+        await reduce(page);
+        const cases = [...SIZES.map(([r, c]) => ({ kind: 'numbers', r, c })), ...[[3, 3], [10, 10], [3, 10]].map(([r, c]) => ({ kind: 'image', r, c }))];
+        for (const k of cases) {
+          if (k.kind === 'numbers') await setSizeUI(page, k.r, k.c); else { await newImageUI(page, k.r, k.c, 'landscape.png'); await cropDoneUI(page); }
+          const tag = `${k.kind} ${k.r}x${k.c} at ${w}x${h}`;
+          const geom = () => page.evaluate(() => ({ sh: document.documentElement.scrollHeight, cw: document.documentElement.clientWidth, ih: window.innerHeight, tiles: [...document.querySelectorAll('#board .tile')].map((e) => { const q = e.getBoundingClientRect(); return { l: q.left, t: q.top, w: q.width, h: q.height }; }) }));
+          const before = await geom();
+          await solveUI(page, k.r, k.c);
+          ok(await page.locator('#message').isVisible(), tag + ': message hidden after the solve');
+          const after = await geom();
+          const m = await rect(page, '#message'), pl = await rect(page, '#plate'), fr = await rect(page, '.frame');
+          ok(m.l >= -0.5 && m.r <= after.cw + 0.5 && m.t >= -0.5 && m.b <= after.ih + 0.5, `${tag}: message ${JSON.stringify(m)} outside the viewport ${after.cw}x${after.ih}`);
+          ok(!overlap(m, pl) && !overlap(m, fr), tag + ': message intersects the plate or frame');
+          ok(after.sh <= after.ih, `${tag}: vertical scroll, scrollHeight ${after.sh} > ${after.ih}`);
+          eq(after.cw, before.cw, tag + ': clientWidth after the solve (a scrollbar appeared)');
+          eq(after.tiles.length, before.tiles.length, tag + ' tile count');
+          after.tiles.forEach((q, i) => {
+            const p = before.tiles[i];
+            ok(['l', 't', 'w', 'h'].every((key) => Math.abs(q[key] - p[key]) <= 0.5), `${tag}: tile ${i} moved or resized, ${JSON.stringify(p)} to ${JSON.stringify(q)}`);
+          });
+          const covered = await page.evaluate(() => [...document.querySelectorAll('#board .tile')].filter((t) => {
+            const q = t.getBoundingClientRect();
+            const el = document.elementFromPoint(q.left + q.width / 2, q.top + q.height / 2);
+            const hit = el && el.closest('.tile');
+            return hit !== t;
+          }).length);
+          eq(covered, 0, tag + ': tiles covered by something else');
+          const lab = await imgBoard(page);
+          await fclick(page, k.r * k.c - 2);
+          eq(await imgBoard(page), lab, tag + ': a click moved a tile');
+          log.push(`${tag}: message ${m.w.toFixed(0)}x${m.h.toFixed(0)} at ${m.l.toFixed(0)},${m.t.toFixed(0)}; scrollHeight ${after.sh} <= ${after.ih}; tile ${after.tiles[0].w.toFixed(1)}px unchanged; click ignored`);
+          await shot(page, dir, `${k.kind === 'image' ? 'image-' : ''}${k.r}x${k.c}-${w}.png`);
+        }
+        await ctx.close();
+      }
+      lines.push('PASS ' + name);
+    } catch (e) {
+      failed = true;
+      lines.push(`FAIL ${name}: ${e.message}`);
+    } finally {
+      await sb.close();
+      fs.writeFileSync(path.join(dir, 'output.txt'), log.join('\n') + '\n');
+    }
+  }
+
+  // site-layout: #20 AC1 and AC6. The app lives only under Site/, and git follows its history across the move.
+  await run('site-layout', async ({ dir, say }) => {
+    for (const p of ['index.html', 'settings.json', 'images']) ok(!fs.existsSync(path.join(ROOT, p)), p + ' still at the repo root');
+    for (const p of ['index.html', 'settings.json', 'images']) ok(fs.existsSync(path.join(SITE, p)), 'Site/' + p + ' missing');
+    const git = (args) => {
+      const r = spawnSync('git', ['-c', 'core.quotepath=off', ...args], { encoding: 'utf8' });
+      ok(r.status === 0, `git ${args.join(' ')} failed: ${r.stderr}`);
+      return r.stdout.split(/\r?\n/).filter(Boolean);
+    };
+    eq(git(['ls-files', 'index.html', 'settings.json', 'images/']), [], 'tracked app files at the repo root');
+    const before = git(['log', '--format=%H', BASE, '--', 'Site/index.html', 'index.html']);
+    const follow = new Set(git(['log', '--follow', '--format=%H', '--', 'Site/index.html']));
+    ok(before.length >= 1, 'no base history for index.html');
+    eq(before.filter((h) => !follow.has(h)), [], 'base commits missing from git log --follow Site/index.html');
+    fs.writeFileSync(path.join(dir, 'follow.txt'), git(['log', '--follow', '--oneline', '--', 'Site/index.html']).join('\n') + '\n');
+    const renames = git(['diff', '-M', '--name-status', BASE, '--', 'Site', 'index.html', 'settings.json', 'images']);
+    fs.writeFileSync(path.join(dir, 'renames.txt'), renames.join('\n') + '\n');
+    // D8: while BASE predates the move, every app file must be a 100% rename (bytes unchanged).
+    if (spawnSync('git', ['cat-file', '-e', `${BASE}:index.html`]).status === 0) {
+      ok(renames.length >= 8 && renames.every((l) => l.startsWith('R100\t')), 'app files not all 100% renames: ' + JSON.stringify(renames));
+      for (const f of ['Site/index.html', 'Site/settings.json']) ok(renames.some((l) => l.endsWith('\t' + f)), f + ' is not a rename');
+    }
+    say(`root clean; Site/ holds index.html, settings.json, images/; git log --follow Site/index.html reaches all ${before.length} base commits (${follow.size} in all)`);
   }, { shoot: false });
 
   // single-file: AC1 (runs near the end so the change set includes the evidence written by the other checks)
@@ -3804,13 +4115,14 @@ async function main() {
       ...sh('git ls-files --others --exclude-standard'),
     ]);
     say('changed set: ' + [...changed].join(', '));
-    const bad = [...changed].filter((f) => f !== 'index.html' && f !== 'settings.json' && f !== 'README.md' && !f.startsWith('test-results/') && !(f.startsWith('images/') && !f.slice(7).includes('/') && R1.test(f)));
-    eq(bad, [], 'files outside index.html, settings.json, README.md, test-results/** and images/<image>');
-    ok(changed.has('index.html'), 'index.html not in change set');
-    const tracked = sh('git ls-files images/');
-    ok(tracked.length >= 1, 'no tracked file under images/');
-    eq(tracked.filter((f) => !R1.test(f)), [], 'tracked files under images/ without a recognised extension');
-    const html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
+    const img = (f, d) => f.startsWith(d) && !f.slice(d.length).includes('/') && R1.test(f);
+    const bad = [...changed].filter((f) => !['index.html', 'settings.json', 'Site/index.html', 'Site/settings.json', 'README.md'].includes(f) && !f.startsWith('test-results/') && !img(f, 'images/') && !img(f, 'Site/images/'));
+    eq(bad, [], 'files outside Site/index.html, Site/settings.json, Site/images/<image>, their old root paths, README.md and test-results/**');
+    ok(changed.has('Site/index.html'), 'Site/index.html not in change set');
+    const tracked = sh('git ls-files Site/images/');
+    ok(tracked.length >= 1, 'no tracked file under Site/images/');
+    eq(tracked.filter((f) => !R1.test(f)), [], 'tracked files under Site/images/ without a recognised extension');
+    const html = fs.readFileSync(path.join(SITE, 'index.html'), 'utf8');
     const pats = { 'src=': /src=/, 'href= (not #)': /href=(?!["']#)/, '@import': /@import/, 'url(': /url\(/, 'type="module"': /type="module"/, 'fetch(': /fetch\(/, XMLHttpRequest: /XMLHttpRequest/, '@font-face': /@font-face/, '<link': /<link/ };
     const want = { 'fetch(': 3, '<link': 1, 'href= (not #)': 1 };
     for (const [k, re] of Object.entries(pats)) {
@@ -3827,8 +4139,10 @@ async function main() {
   // logic-unchanged: #3 section 4 (I9). The seven game-logic functions are byte-identical to the merge base.
   await run('logic-unchanged', async ({ say }) => {
     const norm = (s) => s.replace(/\r\n/g, '\n');
-    const baseHtml = norm(execSync(`git show ${BASE}:index.html`, { encoding: 'utf8', maxBuffer: 1 << 26 }));
-    const nowHtml = norm(fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8'));
+    const basePath = spawnSync('git', ['cat-file', '-e', `${BASE}:Site/index.html`]).status === 0 ? 'Site/index.html' : 'index.html';
+    say('BASE file: ' + basePath);
+    const baseHtml = norm(execSync(`git show ${BASE}:${basePath}`, { encoding: 'utf8', maxBuffer: 1 << 26 }));
+    const nowHtml = norm(fs.readFileSync(path.join(SITE, 'index.html'), 'utf8'));
     const extract = (h, f) => {
       const a = h.indexOf(`function ${f}(`);
       if (a === -1) return null;
@@ -3846,7 +4160,7 @@ async function main() {
 
   // no-inline-handlers: #7's markup grep, unchanged.
   await run('no-inline-handlers', async ({ say }) => {
-    const nowHtml = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
+    const nowHtml = fs.readFileSync(path.join(SITE, 'index.html'), 'utf8');
     const markup = nowHtml.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '');
     const handlers = (markup.match(/<[^>]*\son[a-z]+\s*=/gi) || []).length;
     say('inline handlers in markup: ' + handlers);

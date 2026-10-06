@@ -1,3 +1,8 @@
+<<<<<<< HEAD
 solved first draw: draws 33, board 4,3,7,6,0,9,8,11,5,10,1,2
 unsolvable first draw: draws 22, board 9,3,1,8,10,7,4,2,11,6,0,5
+=======
+solved first draw: draws 33, board 9,11,7,2,4,8,3,1,0,5,10,6
+unsolvable first draw: draws 44, board 8,9,1,2,11,4,3,10,7,0,5,6
+>>>>>>> origin/main
 Math.random restored: true

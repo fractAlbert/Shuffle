@@ -13,7 +13,7 @@
     /* smallest tile the height rule may shrink to */
     --tile-floor: 24px;
     /* vertical space outside the board (page padding, frame, status, buttons, message); tiles shrink to fit the viewport height */
-    --vchrome: 240px;
+    --vchrome: 264px;
     /* horizontal space inside the body's content box that is not tiles or gaps */
     --chrome: calc(2 * var(--frame-pad) + var(--panel) + 2 * var(--well-pad));
   }
@@ -64,6 +64,9 @@
   }
   .tile:hover { filter: brightness(1.04); }
   .tile.empty { background: var(--floor); box-shadow: inset 0 1px 3px rgba(0,0,0,0.9); cursor: default; filter: none; }
+  /* a solved board is locked (#17): no pointer or hover cue until Shuffle or New */
+  #board.locked .tile { cursor: default; }
+  #board.locked .tile:hover { filter: none; }
   .status { display: flex; gap: 24px; font-size: 1.05rem; font-weight: 600; font-variant-numeric: tabular-nums; }
   .tile.image { position: relative; overflow: hidden; background: var(--floor); box-shadow: 0 1px 1px rgba(0,0,0,0.5); }
   .tile.image canvas { display: block; width: 100%; height: 100%; }
@@ -145,18 +148,28 @@
   #new-preview[hidden] { display: none; }
   #new-error { margin: 0 0 12px; color: #ffb4a8; font-weight: 600; }
   .dialog-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 10px; }
-  #message { min-height: 1.5em; font-size: 1.2rem; font-weight: 700; color: var(--ink); }
+  #win { display: flex; justify-content: center; max-width: 100%; margin-top: -16px; }
+  #message {
+    margin-top: 16px; max-width: 100%; padding: 8px 28px; border-radius: 12px; text-align: center;
+    font: italic 700 2rem/1.15 "Segoe Script", "Brush Script MT", "Snell Roundhand", "Apple Chancery", cursive;
+    color: var(--print);
+    background: linear-gradient(160deg, #242424, var(--plastic) 40%, #101010);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.14), inset 0 0 0 1px var(--plastic-edge),
+                0 10px 24px rgba(0,0,0,0.35), 0 2px 4px rgba(0,0,0,0.3);
+  }
+  #message:not([hidden]) { animation: win-pop 0.35s ease-out; }
   #message[hidden] { display: none; }
+  @keyframes win-pop { from { opacity: 0; transform: scale(0.85); } to { opacity: 1; transform: none; } }
   /* Narrow screens: drop the side panel and print the title strip above the well instead. */
   @media (max-width: 559px) {
-    :root { --frame-pad: 14px; --panel: 0px; --vchrome: 266px; }
+    :root { --frame-pad: 14px; --panel: 0px; --vchrome: calc(266px + 24px); } /* the 266 base plus the 24 banner budget, kept as a sum: the look check rejects CSS containing the old fixed tile size */
     .frame { flex-direction: column-reverse; }
     .well { align-self: center; }
     .panel { width: auto; padding: 0 0 10px; flex-direction: row; align-items: flex-end; justify-content: space-between; gap: 10px; }
     .brand { font-size: 1.6rem; }
     .note { font-size: 0.7rem; text-align: right; max-width: 11em; }
   }
-  @media (prefers-reduced-motion: reduce) { .plate { transition: none; } }
+  @media (prefers-reduced-motion: reduce) { .plate { transition: none; } #message:not([hidden]) { animation: none; } }
 </style>
 </head>
 <body>
@@ -185,7 +198,7 @@
   <button id="shuffle" type="button">Shuffle</button>
   <span class="sep" aria-hidden="true"></span><button id="flip" type="button" aria-pressed="false">Flip</button>
 </div>
-<div id="message" hidden>You solved it!</div>
+<div id="win" role="status" aria-live="polite" aria-atomic="true"><div id="message" hidden>You solved it!</div></div>
 <dialog id="new-dialog" aria-labelledby="new-title">
   <h2 id="new-title">New puzzle</h2>
   <div class="size">
@@ -259,6 +272,9 @@ function render() {
     }
     board.appendChild(btn);
   });
+  const locked = isLocked();
+  board.classList.toggle('locked', locked);
+  if (locked) board.querySelectorAll('.tile:not(.empty)').forEach((t) => t.setAttribute('aria-disabled', 'true'));
   document.getElementById('moves').textContent = 'Moves: ' + moves;
   document.getElementById('timer').textContent = 'Time: ' + seconds + 's';
   checkWin();
@@ -349,9 +365,14 @@ function startTimer() {
   }, 1000);
 }
 
+// Return true once the player has solved the board (solved after at least one move, the #5 win); tiles ignore input until Shuffle or New.
+function isLocked() {
+  return moves > 0 && isSolved();
+}
+
 document.getElementById('board').addEventListener('click', (e) => {
   const tile = e.target.closest('.tile');
-  if (tile) move(Number(tile.dataset.index));
+  if (tile && !isLocked()) move(Number(tile.dataset.index));
 });
 document.getElementById('shuffle').addEventListener('click', shuffle);
 

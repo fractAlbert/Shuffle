@@ -2,19 +2,19 @@
 
 A simple sliding tile puzzle web app: a 3x3 grid of tiles numbered 1-8 with one empty space, a Shuffle button, a move counter, and a timer.
 
-The whole app is a single `index.html` with inline CSS and plain JavaScript. No frameworks, no build step.
+The whole app is a single `Site/index.html` with inline CSS and plain JavaScript. No frameworks, no build step. Everything the browser loads lives in `Site/`: `index.html`, `settings.json` and `images/`.
 
 ## Run
 
-From the repo root, run `python -m http.server 8000`, then open http://localhost:8000/.
+From the repo root, run `python -m http.server 8000 --directory Site`, then open http://localhost:8000/. (Or `cd Site` and run `python -m http.server 8000`.)
 
-Pictures dropped into `images/` (jpg, jpeg, png, webp, gif, avif) appear in the New dialog the next time it is opened. Opening `index.html` directly in a browser still plays numbers and your own image files, but without the preset pictures.
+Pictures dropped into `Site/images/` (jpg, jpeg, png, webp, gif, avif) appear in the New dialog the next time it is opened. Opening `Site/index.html` directly in a browser still plays numbers and your own image files, but without the preset pictures.
 
 See [`shuffle.md`](shuffle.md) for the product spec.
 
 ## Settings
 
-`settings.json` in the repo root sets the puzzle sizes offered in the New dialog. Rows are the vertical count, columns the horizontal count; each has a smallest (`min`) and largest (`max`) value.
+`Site/settings.json` sets the puzzle sizes offered in the New dialog. Rows are the vertical count, columns the horizontal count; each has a smallest (`min`) and largest (`max`) value.
 
 ```json
 {
