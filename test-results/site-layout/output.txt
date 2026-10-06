@@ -1,1 +1,1 @@
-
+root clean; Site/ holds index.html, settings.json, images/; git log --follow Site/index.html reaches all 10 base commits (10 in all)
