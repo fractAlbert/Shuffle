@@ -14,7 +14,8 @@ invoked skill.
 |---|---|---|
 | Atlas recommendation | Ticket lacks a clear problem, outcome, or bounded decision | Return to /grill-with-docs, Wayfinder, /to-spec, or /to-tickets as appropriate. |
 | confirmed team policy | Any feature work on the app | Write a plan, run atlas-red-team on it, post it to the issue, and wait for human approval before implementing. |
-| discovered repository fact | Any change to the app | The app must remain a single index.html with inline CSS and plain JavaScript; no frameworks, dependencies, or build step (shuffle.md). |
+| discovered repository fact | Any change to the app | The app must remain a single Site/index.html with inline CSS and plain JavaScript; no frameworks, dependencies, or build step (shuffle.md). Everything the browser loads lives under Site/. |
+| discovered repository fact | Any change to the app or its verification | test-results/verify.cjs is the Playwright verification driver and is extended per work package with checks written from the plan, never from the app code. Clearing the evidence root keeps verify.cjs. |
 
 Classifications have distinct authority: confirmed team policy is mandatory;
 Atlas recommendations are proposals; discovered repository facts are evidence;

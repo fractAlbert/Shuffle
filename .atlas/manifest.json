@@ -64,14 +64,14 @@
   "section_provenance": {
     ".gitattributes": "ee2483103e4535a08218c30d2d183f93e748055fe4e49383b9b1696c0ab92c41",
     ".gitignore": "51662d61f56fc55514c50fbc54f5990fb61140503f2ea54d143c848559e2e6f8",
-    "CLAUDE.md": "13cdd6640efad495bb115d784a87f6d2cac5947895d653cfaf1dcbfa4116ef2a",
+    "CLAUDE.md": "a7b8e2bd520c2d4e64bc76149b9ca40beb9b73b611b34245c761d01ff785bcfe",
     "README.md": "6a49880f39ac6f0c7e04d6ecd5b56afe95a13732a40554db1d0cf61dce6ef71a",
     "docs/agents/guardrails.md": "8bab5a2035292125eee5dc048f11ae22d3fae3816d350f13e205cbeaaa7d7715",
     "docs/agents/issue-tracker.md": "b485305526e74e2f2aa89000971075dd387ce438304998e658c0b63d9dda564b",
-    "docs/agents/planning.md": "b9734abdd913b405766caf825fec343c2bd32e50757d961384d6b344014f5fca",
-    "docs/agents/testing.md": "2b7d1a9c00ae329e5b0f59bbe66a9230b9703dc43a4f43ea00f6c05847030d2a",
-    "docs/agents/tooling.md": "aa24f0ab748eed9dbfea49f709bee23651f217bcb2f14e73b7d496ca3e8ce102",
-    "docs/atlas-operators-guide.md": "9e4018eb9934e2143231074971c73e23395ffb11df1be0aef9e4f79ac991d997"
+    "docs/agents/planning.md": "71660cd5e52a132f7cd6f07361bfd3cbb978387d965da96876bc87401fbec927",
+    "docs/agents/testing.md": "91a29a077d3a51aa6c010f672a4b11fc8b70214bb9e656f7ad0f54cf2abcbaf7",
+    "docs/agents/tooling.md": "43df4a38ddd310c03ec3d73ac35d4d226a213ee07f26472c4c2369b2a3e54d2b",
+    "docs/atlas-operators-guide.md": "e8df48a94b9dafe95a55c782476754153ebab04e9ffa9d797634474a2ef59804"
   },
   "settings_provenance": {
     "hooks": {

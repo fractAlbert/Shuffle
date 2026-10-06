@@ -21,8 +21,8 @@ rereading this guide.
 | format | `` | No formatter | n/a | unavailable |
 | typecheck | `` | Plain JavaScript; no typecheck | n/a | unavailable |
 | build | `` | No build step by design | n/a | unavailable |
-| e2e | `` | No browser test command yet | n/a | unavailable |
-| run | `open index.html in a browser` | Manual and browser-driven verification of the puzzle UI | During implementation and before PR | inferred |
+| e2e | `git fetch origin main && PW_DIR=<path to the playwright package, e.g. from npm i playwright@1.63.0> node test-results/verify.cjs` | Full browser verification of the app (headless Chrome, real python -m http.server serving Site/); writes test-results/verify-output.txt and one evidence directory per check | During implementation and before PR | verified |
+| run | `python -m http.server 8000 --directory Site, then open http://localhost:8000/ (or open Site/index.html directly; no presets then)` | Manual verification of the puzzle UI | During implementation and before PR | inferred |
 
 `verified` means the command ran successfully here. `inferred` means configuration names it but setup did not execute it. `unavailable` is an explicit gap.
 
