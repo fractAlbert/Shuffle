@@ -1,5 +1,5 @@
 diff --git a/test-results/verify.cjs b/test-results/verify.cjs
-index f0f2435..548fe67 100644
+index f0f2435..e7f585f 100644
 --- a/test-results/verify.cjs
 +++ b/test-results/verify.cjs
 @@ -1,4 +1,4 @@
@@ -129,7 +129,7 @@ index f0f2435..548fe67 100644
      say('README Settings section: after Run, json block equals settings.json, keywords present');
    }, { shoot: false });
  
-@@ -3118,11 +3119,26 @@ async function main() {
+@@ -3118,11 +3119,36 @@ async function main() {
    // readme-run: R8. The README says how to run it over HTTP.
    await run('readme-run', async ({ say }) => {
      const readme = fs.readFileSync(path.join(ROOT, 'README.md'), 'utf8');
@@ -143,21 +143,31 @@ index f0f2435..548fe67 100644
 +  await run('site-layout', async ({ dir, say }) => {
 +    for (const p of ['index.html', 'settings.json', 'images']) ok(!fs.existsSync(path.join(ROOT, p)), p + ' still at the repo root');
 +    for (const p of ['index.html', 'settings.json', 'images']) ok(fs.existsSync(path.join(SITE, p)), 'Site/' + p + ' missing');
-+    const git = (args) => spawnSync('git', ['-c', 'core.quotepath=off', ...args], { encoding: 'utf8' }).stdout.split(/\r?\n/).filter(Boolean);
++    const git = (args) => {
++      const r = spawnSync('git', ['-c', 'core.quotepath=off', ...args], { encoding: 'utf8' });
++      ok(r.status === 0, `git ${args.join(' ')} failed: ${r.stderr}`);
++      return r.stdout.split(/\r?\n/).filter(Boolean);
++    };
 +    eq(git(['ls-files', 'index.html', 'settings.json', 'images/']), [], 'tracked app files at the repo root');
 +    const before = git(['log', '--format=%H', BASE, '--', 'Site/index.html', 'index.html']);
 +    const follow = new Set(git(['log', '--follow', '--format=%H', '--', 'Site/index.html']));
 +    ok(before.length >= 1, 'no base history for index.html');
 +    eq(before.filter((h) => !follow.has(h)), [], 'base commits missing from git log --follow Site/index.html');
 +    fs.writeFileSync(path.join(dir, 'follow.txt'), git(['log', '--follow', '--oneline', '--', 'Site/index.html']).join('\n') + '\n');
-+    fs.writeFileSync(path.join(dir, 'renames.txt'), git(['diff', '-M', '--name-status', BASE, '--', 'Site', 'index.html', 'settings.json', 'images']).join('\n') + '\n');
++    const renames = git(['diff', '-M', '--name-status', BASE, '--', 'Site', 'index.html', 'settings.json', 'images']);
++    fs.writeFileSync(path.join(dir, 'renames.txt'), renames.join('\n') + '\n');
++    // D8: while BASE predates the move, every app file must be a 100% rename (bytes unchanged).
++    if (spawnSync('git', ['cat-file', '-e', `${BASE}:index.html`]).status === 0) {
++      ok(renames.length >= 8 && renames.every((l) => l.startsWith('R100\t')), 'app files not all 100% renames: ' + JSON.stringify(renames));
++      for (const f of ['Site/index.html', 'Site/settings.json']) ok(renames.some((l) => l.endsWith('\t' + f)), f + ' is not a rename');
++    }
 +    say(`root clean; Site/ holds index.html, settings.json, images/; git log --follow Site/index.html reaches all ${before.length} base commits (${follow.size} in all)`);
 +  }, { shoot: false });
 +
    // single-file: AC1 (runs near the end so the change set includes the evidence written by the other checks)
    await run('single-file', async ({ say }) => {
      const sh = (c) => execSync(c.replace(/^git /, 'git -c core.quotepath=off '), { encoding: 'utf8' }).split(/\r?\n/).filter(Boolean);
-@@ -3133,13 +3149,14 @@ async function main() {
+@@ -3133,13 +3159,14 @@ async function main() {
        ...sh('git ls-files --others --exclude-standard'),
      ]);
      say('changed set: ' + [...changed].join(', '));
@@ -179,7 +189,7 @@ index f0f2435..548fe67 100644
      const pats = { 'src=': /src=/, 'href= (not #)': /href=(?!["']#)/, '@import': /@import/, 'url(': /url\(/, 'type="module"': /type="module"/, 'fetch(': /fetch\(/, XMLHttpRequest: /XMLHttpRequest/, '@font-face': /@font-face/, '<link': /<link/ };
      const want = { 'fetch(': 3, '<link': 1, 'href= (not #)': 1 };
      for (const [k, re] of Object.entries(pats)) {
-@@ -3156,8 +3173,10 @@ async function main() {
+@@ -3156,8 +3183,10 @@ async function main() {
    // logic-unchanged: #3 section 4 (I9). The seven game-logic functions are byte-identical to the merge base.
    await run('logic-unchanged', async ({ say }) => {
      const norm = (s) => s.replace(/\r\n/g, '\n');
@@ -192,7 +202,7 @@ index f0f2435..548fe67 100644
      const extract = (h, f) => {
        const a = h.indexOf(`function ${f}(`);
        if (a === -1) return null;
-@@ -3175,7 +3194,7 @@ async function main() {
+@@ -3175,7 +3204,7 @@ async function main() {
  
    // no-inline-handlers: #7's markup grep, unchanged.
    await run('no-inline-handlers', async ({ say }) => {

@@ -3128,14 +3128,24 @@ async function main() {
   await run('site-layout', async ({ dir, say }) => {
     for (const p of ['index.html', 'settings.json', 'images']) ok(!fs.existsSync(path.join(ROOT, p)), p + ' still at the repo root');
     for (const p of ['index.html', 'settings.json', 'images']) ok(fs.existsSync(path.join(SITE, p)), 'Site/' + p + ' missing');
-    const git = (args) => spawnSync('git', ['-c', 'core.quotepath=off', ...args], { encoding: 'utf8' }).stdout.split(/\r?\n/).filter(Boolean);
+    const git = (args) => {
+      const r = spawnSync('git', ['-c', 'core.quotepath=off', ...args], { encoding: 'utf8' });
+      ok(r.status === 0, `git ${args.join(' ')} failed: ${r.stderr}`);
+      return r.stdout.split(/\r?\n/).filter(Boolean);
+    };
     eq(git(['ls-files', 'index.html', 'settings.json', 'images/']), [], 'tracked app files at the repo root');
     const before = git(['log', '--format=%H', BASE, '--', 'Site/index.html', 'index.html']);
     const follow = new Set(git(['log', '--follow', '--format=%H', '--', 'Site/index.html']));
     ok(before.length >= 1, 'no base history for index.html');
     eq(before.filter((h) => !follow.has(h)), [], 'base commits missing from git log --follow Site/index.html');
     fs.writeFileSync(path.join(dir, 'follow.txt'), git(['log', '--follow', '--oneline', '--', 'Site/index.html']).join('\n') + '\n');
-    fs.writeFileSync(path.join(dir, 'renames.txt'), git(['diff', '-M', '--name-status', BASE, '--', 'Site', 'index.html', 'settings.json', 'images']).join('\n') + '\n');
+    const renames = git(['diff', '-M', '--name-status', BASE, '--', 'Site', 'index.html', 'settings.json', 'images']);
+    fs.writeFileSync(path.join(dir, 'renames.txt'), renames.join('\n') + '\n');
+    // D8: while BASE predates the move, every app file must be a 100% rename (bytes unchanged).
+    if (spawnSync('git', ['cat-file', '-e', `${BASE}:index.html`]).status === 0) {
+      ok(renames.length >= 8 && renames.every((l) => l.startsWith('R100\t')), 'app files not all 100% renames: ' + JSON.stringify(renames));
+      for (const f of ['Site/index.html', 'Site/settings.json']) ok(renames.some((l) => l.endsWith('\t' + f)), f + ' is not a rename');
+    }
     say(`root clean; Site/ holds index.html, settings.json, images/; git log --follow Site/index.html reaches all ${before.length} base commits (${follow.size} in all)`);
   }, { shoot: false });
 
