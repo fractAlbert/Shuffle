@@ -71,6 +71,7 @@ PASS flip-late-settings
 PASS preset-requests
 PASS preset-layout
 PASS readme-run
+PASS site-layout
 PASS single-file
 PASS logic-unchanged
 PASS no-inline-handlers

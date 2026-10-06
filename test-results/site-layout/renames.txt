@@ -1,0 +1,8 @@
+R100	images/Edward Hopper - Nighthawks.jpeg	Site/images/Edward Hopper - Nighthawks.jpeg
+R100	images/Henri Rousseau - The Sleeping Gypsy.webp	Site/images/Henri Rousseau - The Sleeping Gypsy.webp
+R100	images/Jacques-Louis David - Napoleon Crossing the Alps.jpg	Site/images/Jacques-Louis David - Napoleon Crossing the Alps.jpg
+R100	images/James McNeill Whistler - Whistler’s Mother.jpeg	Site/images/James McNeill Whistler - Whistler’s Mother.jpeg
+R100	images/Katsushika Hokusai – The Great Wave off Kanagawa.webp	Site/images/Katsushika Hokusai – The Great Wave off Kanagawa.webp
+R100	images/Sandro Botticelli - The Birth of Venus.jpg	Site/images/Sandro Botticelli - The Birth of Venus.jpg
+R100	index.html	Site/index.html
+R100	settings.json	Site/settings.json

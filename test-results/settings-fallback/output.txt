@@ -1,3 +1,3 @@
-(a) file://: options 3..10, board 3x3, requests ["file:///C:/Users/fract/Documents/github/Shuffle/index.html"], no console output
+(a) file://: options 3..10, board 3x3, requests ["file:///C:/Users/fract/Documents/github/Shuffle/.claude/worktrees/20/Shuffle/Site/index.html"], no console output
 (b) missing: options 3..10, board 3x3, no message, same text as the reference, slide, New and 4x4 work; console entries 1
 (c) malformed: options 3..10, board 3x3, no message, same text as the reference, slide, New and 4x4 work; console entries 0

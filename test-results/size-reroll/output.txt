@@ -1,3 +1,3 @@
-solved first draw: draws 33, board 10,6,9,1,5,4,8,11,7,0,2,3
-unsolvable first draw: draws 22, board 1,10,4,9,0,2,8,7,11,3,6,5
+solved first draw: draws 22, board 3,5,9,0,11,7,6,4,2,8,10,1
+unsolvable first draw: draws 33, board 6,9,5,8,7,3,10,0,4,11,2,1
 Math.random restored: true
