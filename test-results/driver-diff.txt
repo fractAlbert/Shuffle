@@ -1,9 +1,14 @@
 diff --git a/test-results/verify.cjs b/test-results/verify.cjs
+<<<<<<< HEAD
 index f0f2435..8ae93c5 100644
+=======
+index f0f2435..e7f585f 100644
+>>>>>>> origin/main
 --- a/test-results/verify.cjs
 +++ b/test-results/verify.cjs
 @@ -1,4 +1,4 @@
 -// Verification driver (test tooling, not app code). See plan section 6 of issues #1, #2, #3, #4, #5, #7, #13, #14 and #15.
+<<<<<<< HEAD
 +// Verification driver (test tooling, not app code). See plan section 6 of issues #1, #2, #3, #4, #5, #7, #13, #14, #15 and #17.
  const fs = require('fs');
  const os = require('os');
@@ -335,7 +340,215 @@ index f0f2435..8ae93c5 100644
 +      fs.writeFileSync(path.join(dir, 'output.txt'), log.join('\n') + '\n');
 +    }
 +  }
+=======
++// Verification driver (test tooling, not app code). See plan section 6 of issues #1, #2, #3, #4, #5, #7, #13, #14, #15 and #20.
+ const fs = require('fs');
+ const os = require('os');
+ const path = require('path');
+@@ -11,7 +11,8 @@ const { chromium } = require(process.env.PW_DIR);
+ 
+ const ROOT = process.cwd();
+ const OUT = path.join(ROOT, 'test-results');
+-const PAGE_URL = url.pathToFileURL(path.resolve('index.html')).href;
++const SITE = path.join(ROOT, 'Site'); // the served site: index.html, settings.json and images/ (#20)
++const PAGE_URL = url.pathToFileURL(path.join(SITE, 'index.html')).href;
+ // Change-set base for single-file and logic-unchanged; requires a fresh `git fetch origin main` first.
+ const BASE = execSync('git merge-base origin/main HEAD', { encoding: 'utf8' }).trim();
+ const lines = [];
+@@ -247,7 +248,7 @@ async function expectCrop(page, fx, r, c, z, cx, cy, tag, say) {
+   say(`${tag}: crop sx ${o.sx.toFixed(1)} sy ${o.sy.toFixed(1)} cw ${o.cw.toFixed(1)} ch ${o.ch.toFixed(1)}; preview error ${worstPrev.toFixed(2)}px; ${pc.count} pieces, worst error ${pc.worst.toFixed(2)}px`);
+ }
+ 
+-// ---- #13 helpers. The real `python -m http.server` serves the repo root and the fixture roots; a canned Node server is used only for hostile, delayed and redirecting listings. ----
++// ---- #13 helpers. The real `python -m http.server` serves Site/ and the fixture roots; a canned Node server is used only for hostile, delayed and redirecting listings. ----
+ // Expectations below come from plan #13 sections 2 (D2, D7) and 6, never from the app's code.
+ const R1 = /\.(jpe?g|png|webp|gif|avif)$/i;
+ const stemOf = (f) => f.replace(/\.[^.]+$/, '');
+@@ -302,7 +303,7 @@ async function canned(okBytes) {
+   cs.server = http.createServer((req, res) => {
+     const p = req.url.split('?')[0];
+     cs.requests.push(p);
+-    if (p === '/' || p === '/index.html') { res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' }); res.end(fs.readFileSync(path.join(ROOT, 'index.html'))); return; }
++    if (p === '/' || p === '/index.html') { res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' }); res.end(fs.readFileSync(path.join(SITE, 'index.html'))); return; }
+     if (p === '/images/') {
+       const r = cs.listing(++cs.count);
+       setTimeout(() => { res.writeHead(r.status || 200, { 'Content-Type': 'text/html; charset=utf-8', ...(r.headers || {}) }); res.end(r.body || ''); }, r.delay || 0);
+@@ -311,7 +312,7 @@ async function canned(okBytes) {
+     if (p === '/images/ok.png') { res.writeHead(200, { 'Content-Type': 'image/png' }); res.end(okBytes); return; }
+     if (p === '/settings.json') {
+       const r = cs.settings ? cs.settings() : {};
+-      setTimeout(() => { res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(r.body !== undefined ? r.body : fs.readFileSync(path.join(ROOT, 'settings.json'))); }, r.delay || 0);
++      setTimeout(() => { res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(r.body !== undefined ? r.body : fs.readFileSync(path.join(SITE, 'settings.json'))); }, r.delay || 0);
+       return;
+     }
+     res.writeHead(404, { 'Content-Type': 'text/plain' });
+@@ -381,7 +382,7 @@ function slideOracle(r, c, clicks) {
+ function settingsRoot(name, body) {
+   const dir = path.join(tmpRoot, name);
+   fs.mkdirSync(path.join(dir, 'images'), { recursive: true });
+-  fs.writeFileSync(path.join(dir, 'index.html'), fs.readFileSync(path.join(ROOT, 'index.html')));
++  fs.writeFileSync(path.join(dir, 'index.html'), fs.readFileSync(path.join(SITE, 'index.html')));
+   if (body !== null) fs.writeFileSync(path.join(dir, 'settings.json'), body);
+   return dir;
+ }
+@@ -942,7 +943,7 @@ async function main() {
+ 
+   // look: AC1, AC3, D3 (#7). Computed-style and geometry assertions on the Pussycat look.
+   await run('look', async ({ page, dir, say }) => {
+-    const html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
++    const html = fs.readFileSync(path.join(SITE, 'index.html'), 'utf8');
+     const css = (html.match(/<style>([\s\S]*?)<\/style>/) || ['', ''])[1];
+     ok(css.includes('container-type: inline-size'), 'style lacks container-type: inline-size');
+     ok(css.includes('100cqi'), 'style lacks 100cqi');
+@@ -1054,7 +1055,7 @@ async function main() {
+   }
+ 
+   await run('code-shape', async ({ say }) => {
+-    const html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
++    const html = fs.readFileSync(path.join(SITE, 'index.html'), 'utf8');
+     for (const f of ['render', 'move', 'setSize', 'shuffle', 'isSolvable', 'isSolved', 'checkWin', 'openNew', 'startNew', 'onDecoded', 'onRejected', 'cropRect', 'openCrop', 'drawCrop', 'moveCrop', 'cutImage', 'cropDone', 'loadPresets', 'parseListing', 'onListed', 'gridRange', 'applyRange', 'loadSettings', 'flip', 'drawBack', 'greyscale']) {
+       const re = new RegExp('//[^\\n]*\\r?\\n\\s*function ' + f + '\\b');
+       ok(re.test(html), `function ${f} missing or has no comment above`);
+@@ -1868,15 +1869,15 @@ async function main() {
+   const S = {};
+   let srvErr = null;
+   let cn = null;
+-  const realFiles = fs.readdirSync(path.join(ROOT, 'images')).filter((f) => R1.test(f));
++  const realFiles = fs.readdirSync(path.join(SITE, 'images')).filter((f) => R1.test(f));
+   const A_NAMES = ['Grad – Landscape ’1’', 'portrait', 'Plain', 'Shot', 'Anim', 'Next', 'UPPER', '50% #1', "Bust (detail) 'x'", 'broken'];
+   const A_IGNORED = ['notes', 'readme', 'noext', 'archive.jpg', '.hidden', 'sub', 'inner'];
+   try {
+     tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'shuffle-http-'));
+-    const indexBytes = fs.readFileSync(path.join(ROOT, 'index.html'));
++    const indexBytes = fs.readFileSync(path.join(SITE, 'index.html'));
+     const put = (root, rel, bytes) => { const f = path.join(tmpRoot, root, rel); fs.mkdirSync(path.dirname(f), { recursive: true }); fs.writeFileSync(f, bytes); };
+     for (const r of ['A', 'B', 'C', 'D']) put(r, 'index.html', indexBytes);
+-    const shippedSettings = fs.readFileSync(path.join(ROOT, 'settings.json'));
++    const shippedSettings = fs.readFileSync(path.join(SITE, 'settings.json'));
+     for (const r of ['A', 'B', 'C', 'D']) put(r, 'settings.json', shippedSettings);
+     ok(Buffer.compare(fs.readFileSync(path.join(tmpRoot, 'A', 'index.html')), indexBytes) === 0, 'A/index.html is not a byte copy');
+     put('A', 'images/Grad – Landscape ’1’.png', FIX['landscape.png'].buffer);
+@@ -1887,7 +1888,7 @@ async function main() {
+     put('C', 'images/index.html', '<p>no listing</p>');
+     fs.mkdirSync(path.join(tmpRoot, 'D', 'images'), { recursive: true });
+     const frag = (realFiles[0] || 'x').match(/[A-Za-z]{4,}/)[0];
+-    S.real = await serve(ROOT, async (o) => { const r = await httpGet(o + '/images/'); return r.status === 200 && r.body.includes(frag); });
++    S.real = await serve(SITE, async (o) => { const r = await httpGet(o + '/images/'); return r.status === 200 && r.body.includes(frag); });
+     S.a = await serve(path.join(tmpRoot, 'A'), async (o) => { const r = await httpGet(o + '/images/'); return r.status === 200 && r.body.includes('portrait'); });
+     S.b = await serve(path.join(tmpRoot, 'B'), async (o) => (await httpGet(o + '/images/')).status === 404);
+     S.c = await serve(path.join(tmpRoot, 'C'), async (o) => (await httpGet(o + '/images/')).body.includes('no listing'));
+@@ -2310,7 +2311,7 @@ async function main() {
+     say('302 to another origin: treated as unavailable, no request to example.invalid; canned requests ' + JSON.stringify(cn.requests));
+   });
+ 
+-  // ---- #14 grid size settings. Servers are the s-* fixture roots, the repo root and the canned server (settings-late only). ----
++  // ---- #14 grid size settings. Servers are the s-* fixture roots, Site/ and the canned server (settings-late only). ----
+   // A page with its own request list, also feeding the shared request and console capture.
+   async function watched(pageUrl) {
+     const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+@@ -2326,7 +2327,7 @@ async function main() {
+   // settings-shipped: AC1. The shipped settings.json offers 3..10 for both, every size plays, a preset works at 10x10.
+   await run('settings-shipped', async ({ page, dir, say }) => {
+     need();
+-    const text = fs.readFileSync(path.join(ROOT, 'settings.json'), 'utf8').replace(/\r\n/g, '\n');
++    const text = fs.readFileSync(path.join(SITE, 'settings.json'), 'utf8').replace(/\r\n/g, '\n');
+     eq(text, SHIPPED_TEXT, 'settings.json text');
+     const hits = () => S.real.log.filter((e) => e.path === '/settings.json' && e.code === 200).length;
+     const n0 = hits();
+@@ -2587,8 +2588,8 @@ async function main() {
+     const section = end === -1 ? rest : rest.slice(0, end);
+     const m = section.match(/```json\n([\s\S]*?)```/);
+     ok(m, 'no ```json block in the Settings section');
+-    eq(JSON.parse(m[1]), JSON.parse(fs.readFileSync(path.join(ROOT, 'settings.json'), 'utf8')), 'README json block against settings.json');
+-    for (const w of ['settings.json', 'rows', 'columns', 'min', 'max', '12', 'http', 'file://']) ok(section.includes(w), `Settings section lacks "${w}"`);
++    eq(JSON.parse(m[1]), JSON.parse(fs.readFileSync(path.join(SITE, 'settings.json'), 'utf8')), 'README json block against settings.json');
++    for (const w of ['Site/settings.json', 'rows', 'columns', 'min', 'max', '12', 'http', 'file://']) ok(section.includes(w), `Settings section lacks "${w}"`);
+     say('README Settings section: after Run, json block equals settings.json, keywords present');
+   }, { shoot: false });
+ 
+@@ -3118,11 +3119,36 @@ async function main() {
+   // readme-run: R8. The README says how to run it over HTTP.
+   await run('readme-run', async ({ say }) => {
+     const readme = fs.readFileSync(path.join(ROOT, 'README.md'), 'utf8');
+-    ok(readme.includes('python -m http.server 8000'), 'README lacks python -m http.server 8000');
++    ok(readme.includes('python -m http.server 8000 --directory Site'), 'README lacks python -m http.server 8000 --directory Site');
+     ok(readme.includes('http://localhost:8000/'), 'README lacks http://localhost:8000/');
+     say('README has the run command and the URL');
+   }, { shoot: false });
+ 
++  // site-layout: #20 AC1 and AC6. The app lives only under Site/, and git follows its history across the move.
++  await run('site-layout', async ({ dir, say }) => {
++    for (const p of ['index.html', 'settings.json', 'images']) ok(!fs.existsSync(path.join(ROOT, p)), p + ' still at the repo root');
++    for (const p of ['index.html', 'settings.json', 'images']) ok(fs.existsSync(path.join(SITE, p)), 'Site/' + p + ' missing');
++    const git = (args) => {
++      const r = spawnSync('git', ['-c', 'core.quotepath=off', ...args], { encoding: 'utf8' });
++      ok(r.status === 0, `git ${args.join(' ')} failed: ${r.stderr}`);
++      return r.stdout.split(/\r?\n/).filter(Boolean);
++    };
++    eq(git(['ls-files', 'index.html', 'settings.json', 'images/']), [], 'tracked app files at the repo root');
++    const before = git(['log', '--format=%H', BASE, '--', 'Site/index.html', 'index.html']);
++    const follow = new Set(git(['log', '--follow', '--format=%H', '--', 'Site/index.html']));
++    ok(before.length >= 1, 'no base history for index.html');
++    eq(before.filter((h) => !follow.has(h)), [], 'base commits missing from git log --follow Site/index.html');
++    fs.writeFileSync(path.join(dir, 'follow.txt'), git(['log', '--follow', '--oneline', '--', 'Site/index.html']).join('\n') + '\n');
++    const renames = git(['diff', '-M', '--name-status', BASE, '--', 'Site', 'index.html', 'settings.json', 'images']);
++    fs.writeFileSync(path.join(dir, 'renames.txt'), renames.join('\n') + '\n');
++    // D8: while BASE predates the move, every app file must be a 100% rename (bytes unchanged).
++    if (spawnSync('git', ['cat-file', '-e', `${BASE}:index.html`]).status === 0) {
++      ok(renames.length >= 8 && renames.every((l) => l.startsWith('R100\t')), 'app files not all 100% renames: ' + JSON.stringify(renames));
++      for (const f of ['Site/index.html', 'Site/settings.json']) ok(renames.some((l) => l.endsWith('\t' + f)), f + ' is not a rename');
++    }
++    say(`root clean; Site/ holds index.html, settings.json, images/; git log --follow Site/index.html reaches all ${before.length} base commits (${follow.size} in all)`);
++  }, { shoot: false });
+>>>>>>> origin/main
 +
    // single-file: AC1 (runs near the end so the change set includes the evidence written by the other checks)
    await run('single-file', async ({ say }) => {
      const sh = (c) => execSync(c.replace(/^git /, 'git -c core.quotepath=off '), { encoding: 'utf8' }).split(/\r?\n/).filter(Boolean);
+<<<<<<< HEAD
+=======
+@@ -3133,13 +3159,14 @@ async function main() {
+       ...sh('git ls-files --others --exclude-standard'),
+     ]);
+     say('changed set: ' + [...changed].join(', '));
+-    const bad = [...changed].filter((f) => f !== 'index.html' && f !== 'settings.json' && f !== 'README.md' && !f.startsWith('test-results/') && !(f.startsWith('images/') && !f.slice(7).includes('/') && R1.test(f)));
+-    eq(bad, [], 'files outside index.html, settings.json, README.md, test-results/** and images/<image>');
+-    ok(changed.has('index.html'), 'index.html not in change set');
+-    const tracked = sh('git ls-files images/');
+-    ok(tracked.length >= 1, 'no tracked file under images/');
+-    eq(tracked.filter((f) => !R1.test(f)), [], 'tracked files under images/ without a recognised extension');
+-    const html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
++    const img = (f, d) => f.startsWith(d) && !f.slice(d.length).includes('/') && R1.test(f);
++    const bad = [...changed].filter((f) => !['index.html', 'settings.json', 'Site/index.html', 'Site/settings.json', 'README.md'].includes(f) && !f.startsWith('test-results/') && !img(f, 'images/') && !img(f, 'Site/images/'));
++    eq(bad, [], 'files outside Site/index.html, Site/settings.json, Site/images/<image>, their old root paths, README.md and test-results/**');
++    ok(changed.has('Site/index.html'), 'Site/index.html not in change set');
++    const tracked = sh('git ls-files Site/images/');
++    ok(tracked.length >= 1, 'no tracked file under Site/images/');
++    eq(tracked.filter((f) => !R1.test(f)), [], 'tracked files under Site/images/ without a recognised extension');
++    const html = fs.readFileSync(path.join(SITE, 'index.html'), 'utf8');
+     const pats = { 'src=': /src=/, 'href= (not #)': /href=(?!["']#)/, '@import': /@import/, 'url(': /url\(/, 'type="module"': /type="module"/, 'fetch(': /fetch\(/, XMLHttpRequest: /XMLHttpRequest/, '@font-face': /@font-face/, '<link': /<link/ };
+     const want = { 'fetch(': 3, '<link': 1, 'href= (not #)': 1 };
+     for (const [k, re] of Object.entries(pats)) {
+@@ -3156,8 +3183,10 @@ async function main() {
+   // logic-unchanged: #3 section 4 (I9). The seven game-logic functions are byte-identical to the merge base.
+   await run('logic-unchanged', async ({ say }) => {
+     const norm = (s) => s.replace(/\r\n/g, '\n');
+-    const baseHtml = norm(execSync(`git show ${BASE}:index.html`, { encoding: 'utf8', maxBuffer: 1 << 26 }));
+-    const nowHtml = norm(fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8'));
++    const basePath = spawnSync('git', ['cat-file', '-e', `${BASE}:Site/index.html`]).status === 0 ? 'Site/index.html' : 'index.html';
++    say('BASE file: ' + basePath);
++    const baseHtml = norm(execSync(`git show ${BASE}:${basePath}`, { encoding: 'utf8', maxBuffer: 1 << 26 }));
++    const nowHtml = norm(fs.readFileSync(path.join(SITE, 'index.html'), 'utf8'));
+     const extract = (h, f) => {
+       const a = h.indexOf(`function ${f}(`);
+       if (a === -1) return null;
+@@ -3175,7 +3204,7 @@ async function main() {
+ 
+   // no-inline-handlers: #7's markup grep, unchanged.
+   await run('no-inline-handlers', async ({ say }) => {
+-    const nowHtml = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
++    const nowHtml = fs.readFileSync(path.join(SITE, 'index.html'), 'utf8');
+     const markup = nowHtml.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '');
+     const handlers = (markup.match(/<[^>]*\son[a-z]+\s*=/gi) || []).length;
+     say('inline handlers in markup: ' + handlers);
+>>>>>>> origin/main

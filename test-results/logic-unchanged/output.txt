@@ -1,3 +1,4 @@
+BASE file: index.html
 move: 480 bytes, identical to 986ddad
 shuffle: 342 bytes, identical to 986ddad
 isSolvable: 414 bytes, identical to 986ddad

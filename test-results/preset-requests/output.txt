@@ -1,5 +1,5 @@
 real: 88 requests: ["/images/","/","/settings.json","/index.html","/images/Katsushika%20Hokusai%20%E2%80%93%20The%20Great%20Wave%20off%20Kanagawa.webp","/images/Edward%20Hopper%20-%20Nighthawks.jpeg"]
-a: 54 requests: ["/images/","/","/settings.json","/images/Fresh%20%E2%80%93%20A%C3%B1adida.png","/images/Grad%20%E2%80%93%20Landscape%20%E2%80%991%E2%80%99.png","/images/portrait.PNG","/images/broken.jpg","/images/gone.png"]
+a: 53 requests: ["/images/","/","/settings.json","/images/Fresh%20%E2%80%93%20A%C3%B1adida.png","/images/Grad%20%E2%80%93%20Landscape%20%E2%80%991%E2%80%99.png","/images/portrait.PNG","/images/broken.jpg","/images/gone.png"]
 b: 6 requests: ["/images/","/","/settings.json"]
 c: 6 requests: ["/images/","/","/settings.json"]
 d: 6 requests: ["/images/","/","/settings.json"]

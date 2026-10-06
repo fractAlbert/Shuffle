@@ -1,8 +1,8 @@
 errors collected: 6
-console: Failed to load resource: the server responded with a status of 404 (File not found) @ http://127.0.0.1:53740/images/
-console: Failed to load resource: the server responded with a status of 404 (File not found) @ http://127.0.0.1:53740/images/
-console: Failed to load resource: the server responded with a status of 404 (File not found) @ http://127.0.0.1:53740/images/
-console: Failed to load resource: the server responded with a status of 404 (File not found) @ http://127.0.0.1:53737/images/gone.png
+console: Failed to load resource: the server responded with a status of 404 (File not found) @ http://127.0.0.1:52158/images/
+console: Failed to load resource: the server responded with a status of 404 (File not found) @ http://127.0.0.1:52158/images/
+console: Failed to load resource: the server responded with a status of 404 (File not found) @ http://127.0.0.1:52158/images/
+console: Failed to load resource: the server responded with a status of 404 (File not found) @ http://127.0.0.1:52155/images/gone.png
 console: Failed to load resource: net::ERR_FAILED @ http://example.invalid/images/
-console: Failed to load resource: the server responded with a status of 404 (File not found) @ http://127.0.0.1:53753/settings.json
-registered expectations: [{"url":"http://127.0.0.1:53740/images/","prefix":"Failed to load resource: the server responded with a status of 404"},{"url":"http://127.0.0.1:53737/images/gone.png","prefix":"Failed to load resource: the server responded with a status of 404"},{"url":"http://example.invalid/images/","prefix":"Failed to load resource: net::ERR_FAILED"},{"url":"http://127.0.0.1:53753/settings.json","prefix":"Failed to load resource: the server responded with a status of 404"}]
+console: Failed to load resource: the server responded with a status of 404 (File not found) @ http://127.0.0.1:52171/settings.json
+registered expectations: [{"url":"http://127.0.0.1:52158/images/","prefix":"Failed to load resource: the server responded with a status of 404"},{"url":"http://127.0.0.1:52155/images/gone.png","prefix":"Failed to load resource: the server responded with a status of 404"},{"url":"http://example.invalid/images/","prefix":"Failed to load resource: net::ERR_FAILED"},{"url":"http://127.0.0.1:52171/settings.json","prefix":"Failed to load resource: the server responded with a status of 404"}]
