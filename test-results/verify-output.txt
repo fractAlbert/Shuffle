@@ -71,6 +71,12 @@ PASS flip-late-settings
 PASS preset-requests
 PASS preset-layout
 PASS readme-run
+PASS win-lock
+PASS win-unlock
+PASS win-banner
+PASS win-banner-motion
+PASS win-a11y
+PASS win-sizes
 PASS site-layout
 PASS single-file
 PASS logic-unchanged

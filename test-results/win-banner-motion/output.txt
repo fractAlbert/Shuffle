@@ -1,0 +1,2 @@
+one running win-pop animation, 0.35s; opacity 1 when finished
+reduced motion: animation none, no animations, opacity 1 at once

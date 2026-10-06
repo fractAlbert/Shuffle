@@ -1,0 +1,4 @@
+1280x800 #message colours: [[36,36,36],[22,22,22],[16,16,16]]
+1280x800: font 32px against 16.8px, contrast 14.2
+360x740 #message colours: [[36,36,36],[22,22,22],[16,16,16]]
+360x740: font 32px against 16.8px, contrast 14.2

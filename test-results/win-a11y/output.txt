@@ -1,0 +1,1 @@
+status/polite node present before (texts []) and after (texts ["You solved it!"])

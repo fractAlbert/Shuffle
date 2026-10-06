@@ -24,5 +24,6 @@ function loadSettings: present with comment
 function flip: present with comment
 function drawBack: present with comment
 function greyscale: present with comment
+function isLocked: present with comment
 SIZE: absent
 isSolvable(tiles, cols): present

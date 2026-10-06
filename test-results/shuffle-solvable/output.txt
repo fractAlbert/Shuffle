@@ -1,1 +1,1 @@
-boards 2020 (20 clicks + 2000 calls); unreachable 0; solved 0; oracle disagreements 0; not permutations 0; distinct 2002
+boards 2020 (20 clicks + 2000 calls); unreachable 0; solved 0; oracle disagreements 0; not permutations 0; distinct 2013
