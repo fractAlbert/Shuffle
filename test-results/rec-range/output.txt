@@ -1,0 +1,3 @@
+(a) s-rec rows 4..8, cols 3..6 from 4x3: {"landscape.png":[4,6],"portrait.png":[6,4],"pano.png":[4,6],"square.png":[4,4],"wide4x3.png":[4,5]}
+(b) s-flip 3..12: pano -> 3,12
+(c) late settings with an image game: numbers 4x3, preview hidden, data-state none

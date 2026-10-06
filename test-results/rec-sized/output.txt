@@ -1,0 +1,4 @@
+(a) 3,3 chosen then landscape: stays 3x3 and Start gives 3x3
+(b) landscape -> 4,6; Columns 4 then portrait: 4,4
+(c) landscape then square without touching the selects: 3,3, no drift
+(d) preset portrait -> 6,4; Cancel and reopen: 3,3 and no preview

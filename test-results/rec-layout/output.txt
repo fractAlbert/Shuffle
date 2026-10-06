@@ -1,0 +1,24 @@
+1280x800 preset dialog background colours: [[36,36,36],[22,22,22],[16,16,16]]
+1280x800 preset: dialog 440x573, preview 366x200 inside it, 5 controls inside, 10 text leaves light
+560x800 preset dialog background colours: [[36,36,36],[22,22,22],[16,16,16]]
+560x800 preset: dialog 440x573, preview 366x200 inside it, 5 controls inside, 10 text leaves light
+390x844 preset dialog background colours: [[36,36,36],[22,22,22],[16,16,16]]
+390x844 preset: dialog 352x543, preview 312x170 inside it, 5 controls inside, 10 text leaves light
+360x740 preset dialog background colours: [[36,36,36],[22,22,22],[16,16,16]]
+360x740 preset: dialog 322x526, preview 282x153 inside it, 5 controls inside, 10 text leaves light
+1280x800 pano.png dialog background colours: [[36,36,36],[22,22,22],[16,16,16]]
+1280x800 pano.png: dialog 440x435, preview 400x100 inside it, 4 controls inside, 10 text leaves light
+560x800 pano.png dialog background colours: [[36,36,36],[22,22,22],[16,16,16]]
+560x800 pano.png: dialog 440x435, preview 400x100 inside it, 4 controls inside, 10 text leaves light
+390x844 pano.png dialog background colours: [[36,36,36],[22,22,22],[16,16,16]]
+390x844 pano.png: dialog 352x433, preview 312x78 inside it, 4 controls inside, 10 text leaves light
+360x740 pano.png dialog background colours: [[36,36,36],[22,22,22],[16,16,16]]
+360x740 pano.png: dialog 322x425, preview 282x70 inside it, 4 controls inside, 10 text leaves light
+1280x800 portrait.png dialog background colours: [[36,36,36],[22,22,22],[16,16,16]]
+1280x800 portrait.png: dialog 440x535, preview 133x200 inside it, 4 controls inside, 10 text leaves light
+560x800 portrait.png dialog background colours: [[36,36,36],[22,22,22],[16,16,16]]
+560x800 portrait.png: dialog 440x535, preview 133x200 inside it, 4 controls inside, 10 text leaves light
+390x844 portrait.png dialog background colours: [[36,36,36],[22,22,22],[16,16,16]]
+390x844 portrait.png: dialog 352x555, preview 133x200 inside it, 4 controls inside, 10 text leaves light
+360x740 portrait.png dialog background colours: [[36,36,36],[22,22,22],[16,16,16]]
+360x740 portrait.png: dialog 322x540, preview 123x185 inside it, 4 controls inside, 10 text leaves light

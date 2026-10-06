@@ -1,0 +1,4 @@
+(a) a then b: loading + hidden while a was held; after a arrived the selects stay 6,4 and the preview is b
+(b) a then Escape, a arrives: nothing opens or changes
+(c) a, Cancel, reopen, b, then a arrives: the selects follow b
+(d) from an image game: the pending pick hides the current picture; after release it shows a

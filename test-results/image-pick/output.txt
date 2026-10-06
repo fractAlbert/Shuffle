@@ -1,2 +1,2 @@
 file input: {"tag":"INPUT","type":"file","accept":"image/*","inDialog":true}
-file chosen -> Image checked -> Start -> crop dialog -> Done -> 8 image tiles, solved
+file chosen -> Image checked -> Start -> crop dialog -> Done -> 23 image tiles (landscape recommends 4x6), solved

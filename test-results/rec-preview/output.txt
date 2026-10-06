@@ -1,0 +1,9 @@
+landscape.png 3x3: css 300x200, store 300x200 at dpr 1; lit rect (50.0, 0.0)-(250.0, 200.0); 49 lit and 14 dim samples, worst lit error 0.49; 20000 dimmed px; 2+2 cut lines
+landscape.png 3x5: css 300x200, store 300x200 at dpr 1; lit rect (0.0, 10.0)-(300.0, 190.0); 49 lit and 14 dim samples, worst lit error 0.99; 6000 dimmed px; 4+2 cut lines
+landscape.png 5x3: css 300x200, store 300x200 at dpr 1; lit rect (90.0, 0.0)-(210.0, 200.0); 25 lit and 14 dim samples, worst lit error 1.11; 36000 dimmed px; 2+4 cut lines
+landscape.png 3x10: css 300x200, store 300x200 at dpr 1; lit rect (0.0, 55.0)-(300.0, 145.0); 30 lit and 14 dim samples, worst lit error 1.03; 33000 dimmed px; 9+2 cut lines
+landscape.png 4x6: css 300x200, store 300x200 at dpr 1; lit rect (0.0, 0.0)-(300.0, 200.0); 36 lit and 0 dim samples, worst lit error 1.11; 0 dimmed px; 5+3 cut lines
+portrait.png 3x3: css 133x200, store 133x200 at dpr 1; lit rect (0.0, 33.3)-(133.0, 166.7); 49 lit and 14 dim samples, worst lit error 0.74; 8911 dimmed px; 2+2 cut lines
+portrait.png 5x3: css 133x200, store 133x200 at dpr 1; lit rect (6.7, 0.0)-(126.4, 200.0); 25 lit and 14 dim samples, worst lit error 1.79; 2800 dimmed px; 2+4 cut lines
+pano.png 3x10: css 400x100, store 400x100 at dpr 1; lit rect (33.3, 0.0)-(366.7, 100.0); 30 lit and 14 dim samples, worst lit error 0.84; 6600 dimmed px; 9+2 cut lines
+dpr 2 landscape 3x5: css 300x200, store 600x400 at dpr 2; lit rect (0.0, 20.0)-(600.0, 380.0); 49 lit and 14 dim samples, worst lit error 0.73; 24000 dimmed px; 4+2 cut lines

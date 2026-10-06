@@ -144,6 +144,8 @@
   dialog .zoom { display: flex; align-items: center; gap: 10px; margin: 12px 0; font-weight: 600; }
   dialog .zoom input { flex: 1; min-width: 0; }
   #crop-view { display: block; margin: 0 auto; touch-action: none; cursor: grab; border-radius: 3px; background: var(--floor); }
+  #new-preview { display: block; margin: 0 auto 12px; border-radius: 3px; background: var(--floor); }
+  #new-preview[hidden] { display: none; }
   #new-error { margin: 0 0 12px; color: #ffb4a8; font-weight: 600; }
   .dialog-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 10px; }
   #win { display: flex; justify-content: center; max-width: 100%; margin-top: -16px; }
@@ -210,6 +212,7 @@
   <label class="file preset" id="preset-row" hidden>Picture <select id="preset" autocomplete="off"><option value="">Choose a picture</option></select></label>
   <p id="preset-note" class="hint" hidden></p>
   <label class="file">Image file <input type="file" id="image-file" accept="image/*"></label>
+  <canvas id="new-preview" hidden aria-label="Preview: the picture with the grid it will be cut into"></canvas>
   <p id="new-error" role="alert" hidden></p>
   <div class="dialog-actions">
     <button id="new-cancel" type="button">Cancel</button>
@@ -245,6 +248,10 @@ let range = null; // sizes offered in the New dialog: { rows: { min, max }, cols
 let flipped = false; // true while the back of the board is showing
 let picture = null; // crop rectangle { sx, sy, cw, ch } of image, painted whole on the back
 let caption = ''; // back caption of the current image puzzle: the preset or file name
+let preview = null; // picture chosen in the open New dialog, loaded for the preview: { img, url }, or null
+let previewId = 0; // generation token for the pending preview load
+let previewStatus = 'none'; // load state of the picked picture: none, loading, ready or failed
+let sized = false; // true once the player changed Rows or Columns in the open New dialog
 
 // Rebuild the board DOM and counters from the current state, then check for a win.
 function render() {
@@ -384,11 +391,14 @@ function openNew() {
   $('new-error').hidden = true;
   $('new-start').disabled = false;
   newDialog.showModal();
+  sized = false;
   loadPresets();
+  loadPreview();
 }
 
 // Start the puzzle chosen in the New dialog: numbers at once, an image via the crop dialog.
 function startNew() {
+  sized = true;
   const r = Number($('rows').value);
   const c = Number($('cols').value);
   const file = $('image-file').files[0];
@@ -404,8 +414,7 @@ function startNew() {
     const id = ++decodeId;
     const name = $('preset').selectedOptions[0].textContent;
     $('new-start').disabled = true;
-    fetch($('preset').value, { redirect: 'error' })
-      .then((res) => (res.ok ? res.blob() : Promise.reject(new Error('HTTP ' + res.status))))
+    presetBlob($('preset').value)
       .then((b) => createImageBitmap(b))
       .then((bmp) => onDecoded(bmp, id, r, c, name), () => onRejected(id));
   } else if (!file && image) {
@@ -578,9 +587,11 @@ function cropDone() {
 $('new').addEventListener('click', openNew);
 $('new-start').addEventListener('click', startNew);
 $('new-cancel').addEventListener('click', () => newDialog.close());
-newDialog.addEventListener('close', () => { decodeId++; $('new-start').disabled = false; });
-$('image-file').addEventListener('change', () => { if ($('image-file').files.length) { $('kind-image').checked = true; $('preset').value = ''; } });
-$('preset').addEventListener('change', () => { if ($('preset').value) { $('kind-image').checked = true; $('image-file').value = ''; } });
+newDialog.addEventListener('close', () => { decodeId++; $('new-start').disabled = false; previewId++; setPreview(null); });
+$('image-file').addEventListener('change', () => { if ($('image-file').files.length) { $('kind-image').checked = true; $('preset').value = ''; } loadPreview(); });
+$('preset').addEventListener('change', () => { if ($('preset').value) { $('kind-image').checked = true; $('image-file').value = ''; } loadPreview(); });
+for (const id of ['rows', 'cols']) $(id).addEventListener('change', () => { sized = true; drawPreview(); });
+for (const id of ['kind-numbers', 'kind-image']) $(id).addEventListener('change', drawPreview);
 $('crop-cancel').addEventListener('click', () => cropDialog.close());
 $('crop-done').addEventListener('click', cropDone);
 $('crop-centre').addEventListener('click', () => { crop.cx = crop.bmp.width / 2; crop.cy = crop.bmp.height / 2; drawCrop(); });
@@ -649,7 +660,7 @@ function loadSettings() {
 
 applyRange(gridRange(null));
 render();
-const settingsReady = loadSettings().then((s) => applyRange(gridRange(s))).then(() => { if (flipped) drawBack(); });
+const settingsReady = loadSettings().then((s) => applyRange(gridRange(s))).then(() => { if (flipped) drawBack(); if (newDialog.open) drawPreview(); });
 
 // Turn the board over: show its back (the solved puzzle in greyscale) or the front again. Game state is untouched.
 function flip() {
@@ -710,7 +721,100 @@ function greyscale(g, w, h) {
 }
 
 $('flip').addEventListener('click', flip);
-window.addEventListener('resize', () => { if (flipped) drawBack(); });
+window.addEventListener('resize', () => { if (flipped) drawBack(); if (newDialog.open) drawPreview(); });
+
+// Fetch a preset picture as a Blob, refusing redirects so nothing leaves the page's origin.
+function presetBlob(url) {
+  return fetch(url, { redirect: 'error' }).then((res) => (res.ok ? res.blob() : Promise.reject(new Error('HTTP ' + res.status))));
+}
+
+// Return [rows, cols] closest in shape to a w x h picture: among sizes within a 5% ratio band of the closest, the one with a tile count nearest the current game's.
+function recommend(w, h) {
+  const want = Math.log(w / h);
+  const sizes = [];
+  for (let r = range.rows.min; r <= range.rows.max; r++) {
+    for (let c = range.cols.min; c <= range.cols.max; c++) sizes.push({ r, c, e: Math.abs(Math.log(c / r) - want) });
+  }
+  const best = Math.min(...sizes.map((s) => s.e));
+  const near = sizes.filter((s) => s.e <= best + 0.05 + 1e-9);
+  const dist = (s) => Math.abs(s.r * s.c - rows * cols);
+  near.sort((x, y) => dist(x) - dist(y) || x.r * x.c - y.r * y.c || x.r - y.r);
+  return [near[0].r, near[0].c];
+}
+
+// Replace the preview picture, revoking the object URL of the one it replaces.
+function setPreview(p) {
+  if (preview) URL.revokeObjectURL(preview.url);
+  preview = p;
+}
+
+// Load the picture chosen in the New dialog (preset or file) for the preview; once loaded, recommend its size unless the player chose one.
+function loadPreview() {
+  const id = ++previewId;
+  setPreview(null);
+  const url = $('preset').value, file = $('image-file').files[0];
+  previewStatus = url || file ? 'loading' : 'none';
+  drawPreview();
+  if (!url && !file) return;
+  (url ? presetBlob(url) : Promise.resolve(file)).then((b) => {
+    if (id !== previewId || !newDialog.open) return null;
+    const img = new Image();
+    const src = URL.createObjectURL(b);
+    img.src = src;
+    return img.decode().then(() => {
+      if (img.naturalWidth > 0 && img.naturalHeight > 0) return { img, url: src };
+      URL.revokeObjectURL(src);
+      throw new Error('no natural size');
+    }, (e) => { URL.revokeObjectURL(src); throw e; });
+  }).then((p) => {
+    if (!p) return;
+    if (id !== previewId || !newDialog.open) { URL.revokeObjectURL(p.url); return; }
+    setPreview(p);
+    previewStatus = 'ready';
+    if (!sized && $('kind-image').checked) {
+      const [r, c] = recommend(p.img.naturalWidth, p.img.naturalHeight);
+      $('rows').value = String(r);
+      $('cols').value = String(c);
+    }
+    drawPreview();
+  }, () => { if (id === previewId) { previewStatus = 'failed'; drawPreview(); } });
+}
+
+// Paint the preview: the whole picture fitted to the dialog, the default crop for the chosen size lit with its cut lines, the overflow dimmed.
+function drawPreview() {
+  const cv = $('new-preview');
+  const chosen = Boolean($('preset').value || $('image-file').files.length);
+  const pic = !$('kind-image').checked ? null : chosen ? (preview && preview.img) : image;
+  cv.hidden = !pic;
+  cv.dataset.state = chosen ? previewStatus : pic ? 'current' : 'none';
+  if (!pic) return;
+  const W = pic.naturalWidth || pic.width, H = pic.naturalHeight || pic.height;
+  const r = Number($('rows').value), c = Number($('cols').value);
+  const cs = getComputedStyle(newDialog);
+  const boxW = Math.min(newDialog.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight), 400);
+  const boxH = Math.min(200, window.innerHeight / 4);
+  const k = Math.min(boxW / W, boxH / H);
+  const vw = Math.max(1, Math.floor(W * k)), vh = Math.max(1, Math.floor(H * k));
+  const dpr = window.devicePixelRatio || 1;
+  cv.style.width = vw + 'px';
+  cv.style.height = vh + 'px';
+  cv.width = Math.round(vw * dpr);
+  cv.height = Math.round(vh * dpr);
+  const g = cv.getContext('2d');
+  g.drawImage(pic, 0, 0, cv.width, cv.height);
+  const q = cropRect({ bmp: { width: W, height: H }, rows: r, cols: c, z: 1, cx: W / 2, cy: H / 2 });
+  const s = cv.width / W;
+  const x0 = Math.round(q.sx * s), y0 = Math.round(q.sy * s), x1 = Math.round((q.sx + q.cw) * s), y1 = Math.round((q.sy + q.ch) * s);
+  g.fillStyle = 'rgba(0, 0, 0, 0.6)';
+  g.fillRect(0, 0, cv.width, y0);
+  g.fillRect(0, y1, cv.width, cv.height - y1);
+  g.fillRect(0, y0, x0, y1 - y0);
+  g.fillRect(x1, y0, cv.width - x1, y1 - y0);
+  const t = Math.max(1, Math.round(dpr));
+  g.fillStyle = '#fff';
+  for (let i = 1; i < c; i++) g.fillRect(Math.round(x0 + i * (x1 - x0) / c), y0, t, y1 - y0);
+  for (let i = 1; i < r; i++) g.fillRect(x0, Math.round(y0 + i * (y1 - y0) / r), x1 - x0, t);
+}
 </script>
 </body>
 </html>
