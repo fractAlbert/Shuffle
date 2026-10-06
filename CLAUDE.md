@@ -28,17 +28,20 @@ repository keeps its own base SHA, branch, verification result, and pull request
 
 ## Repository framing
 
-**Shuffle** — Shuffle: a single-file sliding tile puzzle web app (index.html with inline CSS and plain JavaScript, no frameworks, no build step). The product spec lives in shuffle.md.
+**Shuffle** — Shuffle: a sliding tile puzzle web app. Everything the browser loads lives in Site/: a single Site/index.html with inline CSS and plain JavaScript, Site/settings.json and Site/images/. No frameworks, no build step. The product spec lives in shuffle.md.
 
 ### Structure
 
+- `Site/index.html` — The entire app: markup, inline CSS, and plain JavaScript
+- `Site/settings.json` — Grid sizes offered in the New dialog
+- `Site/images/` — Preset pictures listed in the New dialog when served over HTTP
 - `shuffle.md` — Product spec for the Shuffle puzzle
-- `index.html` — The entire app: markup, inline CSS, and plain JavaScript (to be created)
+- `test-results/` — Verification driver (verify.cjs) and the committed evidence of the latest work package
 - `docs/agents/` — Agent guidance: issue tracker, triage labels, domain docs, Atlas policy
 
 ### Repository-specific rules
 
-- Keep the app to a single index.html with no frameworks, dependencies, or build step
+- Keep the app to a single Site/index.html with no frameworks, dependencies, or build step; everything the browser loads stays under Site/
 
 ## Atlas repository workflow
 

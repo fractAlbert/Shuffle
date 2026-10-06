@@ -12,7 +12,7 @@ third-party library documentation.
 | Plugin | Status | Why it applies | Use when | Prerequisites | Install or state |
 |---|---|---|---|---|---|
 | `github` | recommended | The repository remote is hosted on GitHub and issues are tracked there. | Repository, pull-request, issue, and review operations on the source host. | none | `/plugin install github@claude-plugins-official` |
-| `playwright` | recommended | The app is a browser UI and evidence is screenshot-based. | Driving index.html in a browser to verify behavior and capture screenshot evidence. | none | `/plugin install playwright@claude-plugins-official` |
+| `playwright` | recommended | The app is a browser UI and evidence is screenshot-based. | Driving Site/index.html in a browser to verify behavior and capture screenshot evidence. | none | `/plugin install playwright@claude-plugins-official` |
 | `typescript-lsp` | unavailable | JavaScript is present but typescript-language-server is not installed; low value for a single inline script. | Not used. | typescript-language-server | `/plugin install typescript-lsp@claude-plugins-official` |
 
 `installed` means setup verified the plugin is enabled and any named binary is

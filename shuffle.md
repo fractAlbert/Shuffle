@@ -4,7 +4,7 @@ Build a simple sliding tile puzzle web app called "Shuffle".
 
 Requirements:
 
-- Single file: index.html with inline CSS and plain JavaScript. No frameworks, no build step.
+- Single file: Site/index.html with inline CSS and plain JavaScript. No frameworks, no build step.
 
 - Show the title "Shuffle" at the top of the page.
 
