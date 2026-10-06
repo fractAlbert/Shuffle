@@ -1,5 +1,5 @@
 diff --git a/test-results/verify.cjs b/test-results/verify.cjs
-index f0f2435..7ca2638 100644
+index f0f2435..8ae93c5 100644
 --- a/test-results/verify.cjs
 +++ b/test-results/verify.cjs
 @@ -1,4 +1,4 @@
@@ -51,19 +51,22 @@ index f0f2435..7ca2638 100644
        const re = new RegExp('//[^\\n]*\\r?\\n\\s*function ' + f + '\\b');
        ok(re.test(html), `function ${f} missing or has no comment above`);
        say(`function ${f}: present with comment`);
-@@ -3123,6 +3127,276 @@ async function main() {
+@@ -3123,6 +3127,287 @@ async function main() {
      say('README has the run command and the URL');
    }, { shoot: false });
  
 +  // ---- #17 lock the solved puzzle and show a prominent win banner. Each check uses reduced motion unless it is about motion. ----
 +  // On a fresh solved board, slide the last tile left and back: a real solve in 2 moves.
 +  const solveUI = async (page, r, c) => { await click(page, r * c - 2); await click(page, r * c - 1); };
++  // Board labels, moves, timer, banner and lock flags, plus the cursor and aria-disabled of the first non-empty tile.
 +  const lockState = async (page) => {
 +    const t = await page.$eval('#board .tile:not(.empty)', (e) => ({ cursor: getComputedStyle(e).cursor, aria: e.getAttribute('aria-disabled') }));
 +    return { labels: await imgBoard(page), moves: await movesOf(page), timer: await timerOf(page), msg: await page.$eval('#message', (e) => !e.hidden), locked: await page.$eval('#board', (e) => e.classList.contains('locked')), cursor: t.cursor, aria: t.aria };
 +  };
++  // Hover tile i and read its computed filter.
 +  const hoverFilter = async (page, i) => { await page.hover(`#board .tile[data-index="${i}"]`); return page.$eval(`#board .tile[data-index="${i}"]`, (e) => getComputedStyle(e).filter); };
-+  const legalIndex = async (page) => { const e = (await board(page)).indexOf('_'); return e % 3 ? e - 1 : e + 1; };
++  // On a 3x3 board only: the index of a tile beside the gap in the same row, so clicking it is a legal move.
++  const legalIndex3x3 = async (page) => { const e = (await board(page)).indexOf('_'); return e % 3 ? e - 1 : e + 1; };
 +
 +  // win-lock: AC1. A solved board ignores clicks, double clicks, keys, mouse and touch; the cue is visible; Flip still works.
 +  await run('win-lock', async ({ page, dir, say }) => {
@@ -120,14 +123,21 @@ index f0f2435..7ca2638 100644
 +    const i0 = await lockState(page);
 +    eq(i0.moves, 2, 'image moves after solve');
 +    ok(i0.msg && i0.locked, 'image: message or lock missing');
++    eq(i0.cursor, 'default', 'image: cursor on a non-empty tile when locked');
++    eq(i0.aria, 'true', 'image: aria-disabled when locked');
++    eq(await hoverFilter(page, 5), 'none', 'image: hover filter when locked');
 +    for (let i = 0; i < 9; i++) await fclick(page, i);
++    await page.dblclick('#board .tile[data-index="7"]', { force: true });
 +    await page.focus('#board .tile[data-index="7"]');
 +    await page.keyboard.press('Enter');
-+    eq(await imgBoard(page), labels, 'image labels after clicks');
-+    eq(await pieceSample(page), px, 'image pieces after clicks');
-+    eq((await lockState(page)).moves, 2, 'image moves after clicks');
++    await page.keyboard.press('Space');
++    const ic5 = await centreOf(page, '#board .tile[data-index="5"]');
++    await page.mouse.click(ic5.x, ic5.y);
++    eq(await imgBoard(page), labels, 'image labels after every input');
++    eq(await pieceSample(page), px, 'image pieces after every input');
++    eq((await lockState(page)).moves, 2, 'image moves after every input');
 +    await shot(page, dir, 'locked-image.png');
-+    say('image 3x3: labels, pieces and moves unchanged after clicks and Enter');
++    say('image 3x3: lock cues shown; labels, pieces and moves unchanged after clicks 0..8, dblclick, Enter, Space and a mouse click');
 +  });
 +
 +  // win-unlock: AC2, AC5. Shuffle and New unlock; cancelling New keeps the lock.
@@ -141,7 +151,7 @@ index f0f2435..7ca2638 100644
 +    eq(await movesOf(page), 0, 'moves after Shuffle');
 +    eq(await timerOf(page), 0, 'timer after Shuffle');
 +    ok(!(await page.$eval('#board', (e) => e.classList.contains('locked'))), '.locked after Shuffle');
-+    await click(page, await legalIndex(page));
++    await click(page, await legalIndex3x3(page));
 +    eq(await movesOf(page), 1, 'moves after a legal click following Shuffle');
 +    say('Shuffle: message hidden, moves 0, timer 0, unlocked, legal click gives moves 1');
 +    await setSizeUI(page, 3, 3);
@@ -190,11 +200,11 @@ index f0f2435..7ca2638 100644
 +      await solveUI(page, 3, 3);
 +      const tag = `${w}x${h}`;
 +      ok(await page.locator('#message').isVisible(), tag + ': message hidden');
-+      const fm = parseFloat(await style(page, '#message', 'fontSize')), fs2 = parseFloat(await style(page, '#moves', 'fontSize'));
-+      ok(fm >= 1.75 * fs2, `${tag}: message font ${fm}px not at least 1.75x the status ${fs2}px`);
++      const fm = parseFloat(await style(page, '#message', 'fontSize')), fsMoves = parseFloat(await style(page, '#moves', 'fontSize'));
++      ok(fm >= 1.75 * fsMoves, `${tag}: message font ${fm}px not at least 1.75x the status ${fsMoves}px`);
 +      ok(Number(await style(page, '#message', 'fontWeight')) >= 700, tag + ': font weight');
-+      eq(await style(page, '#message', 'fontStyle'), 'italic', tag + ' font-style');
-+      eq(await style(page, '#message', 'fontFamily'), await style(page, 'h1.brand', 'fontFamily'), tag + ' font family against the title');
++      eq(await style(page, '#message', 'fontStyle'), 'italic', tag + ': font-style');
++      eq(await style(page, '#message', 'fontFamily'), await style(page, 'h1.brand', 'fontFamily'), tag + ': font family against the title');
 +      const tc = rgbOf(await style(page, '#message', 'color'));
 +      ok(tc.every((v) => v >= 230), `${tag}: text colour ${tc}`);
 +      const bg = await colours(page, '#message');
@@ -203,7 +213,7 @@ index f0f2435..7ca2638 100644
 +      const ratio = (lum(tc) + 0.05) / (Math.max(...bg.map(lum)) + 0.05);
 +      ok(ratio >= 7, `${tag}: contrast ${ratio.toFixed(2)} below 7`);
 +      ok(!isGreen(tc) && !bg.some(isGreen), tag + ': green');
-+      say(`${tag}: font ${fm}px against ${fs2}px, contrast ${ratio.toFixed(1)}`);
++      say(`${tag}: font ${fm}px against ${fsMoves}px, contrast ${ratio.toFixed(1)}`);
 +      await shot(page, dir, `solved-${w}.png`);
 +    }
 +  });
@@ -295,6 +305,7 @@ index f0f2435..7ca2638 100644
 +          ok(m.l >= -0.5 && m.r <= after.cw + 0.5 && m.t >= -0.5 && m.b <= after.ih + 0.5, `${tag}: message ${JSON.stringify(m)} outside the viewport ${after.cw}x${after.ih}`);
 +          ok(!overlap(m, pl) && !overlap(m, fr), tag + ': message intersects the plate or frame');
 +          ok(after.sh <= after.ih, `${tag}: vertical scroll, scrollHeight ${after.sh} > ${after.ih}`);
++          eq(after.cw, before.cw, tag + ': clientWidth after the solve (a scrollbar appeared)');
 +          eq(after.tiles.length, before.tiles.length, tag + ' tile count');
 +          after.tiles.forEach((q, i) => {
 +            const p = before.tiles[i];

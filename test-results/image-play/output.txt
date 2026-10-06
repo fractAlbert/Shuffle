@@ -1,5 +1,5 @@
 two legal clicks solved the image board; timer frozen at 1s
 10 shuffles: permutation, oracle-solvable, not solved, moves 0, timer 0, every piece at its own value's home cell
-slid tile 5 from 4 to 7: same colour [128,128,128], moves 1
-10x10: 3 shuffles oracle-solvable with every piece home; slid tile 38 from 67 to 68, same colour [170,89,128], moves 1
-3x10: 3 shuffles oracle-solvable with every piece home; slid tile 6 from 22 to 23, same colour [140,89,128], moves 1
+slid tile 7 from 5 to 8: same colour [71,213,128], moves 1
+10x10: 3 shuffles oracle-solvable with every piece home; slid tile 25 from 45 to 46, same colour [119,64,128], moves 1
+3x10: 3 shuffles oracle-solvable with every piece home; slid tile 1 from 13 to 14, same colour [12,89,128], moves 1

@@ -1,4 +1,4 @@
 numbers: {"labels":["1","2","3","4","5","6","7","8","_"],"moves":2,"timer":0,"msg":true,"locked":true,"cursor":"default","aria":"true"}; clicks 0..8, dblclick, Enter, Space and a mouse click ignored; timer stayed 0
 touch tap ignored
 flip twice, then clicks ignored; #flip enabled
-image 3x3: labels, pieces and moves unchanged after clicks and Enter
+image 3x3: lock cues shown; labels, pieces and moves unchanged after clicks 0..8, dblclick, Enter, Space and a mouse click

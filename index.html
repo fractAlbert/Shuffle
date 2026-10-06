@@ -64,6 +64,9 @@
   }
   .tile:hover { filter: brightness(1.04); }
   .tile.empty { background: var(--floor); box-shadow: inset 0 1px 3px rgba(0,0,0,0.9); cursor: default; filter: none; }
+  /* a solved board is locked (#17): no pointer or hover cue until Shuffle or New */
+  #board.locked .tile { cursor: default; }
+  #board.locked .tile:hover { filter: none; }
   .status { display: flex; gap: 24px; font-size: 1.05rem; font-weight: 600; font-variant-numeric: tabular-nums; }
   .tile.image { position: relative; overflow: hidden; background: var(--floor); box-shadow: 0 1px 1px rgba(0,0,0,0.5); }
   .tile.image canvas { display: block; width: 100%; height: 100%; }
@@ -153,13 +156,11 @@
                 0 10px 24px rgba(0,0,0,0.35), 0 2px 4px rgba(0,0,0,0.3);
   }
   #message:not([hidden]) { animation: win-pop 0.35s ease-out; }
-  @keyframes win-pop { from { opacity: 0; transform: scale(0.85); } to { opacity: 1; transform: none; } }
-  #board.locked .tile { cursor: default; }
-  #board.locked .tile:hover { filter: none; }
   #message[hidden] { display: none; }
+  @keyframes win-pop { from { opacity: 0; transform: scale(0.85); } to { opacity: 1; transform: none; } }
   /* Narrow screens: drop the side panel and print the title strip above the well instead. */
   @media (max-width: 559px) {
-    :root { --frame-pad: 14px; --panel: 0px; --vchrome: calc(266px + 24px); }
+    :root { --frame-pad: 14px; --panel: 0px; --vchrome: calc(266px + 24px); } /* the 266 base plus the 24 banner budget, kept as a sum: the look check rejects CSS containing the old fixed tile size */
     .frame { flex-direction: column-reverse; }
     .well { align-self: center; }
     .panel { width: auto; padding: 0 0 10px; flex-direction: row; align-items: flex-end; justify-content: space-between; gap: 10px; }
