@@ -1,0 +1,1 @@
+Start pressed while the preview loaded: selects stayed 3,3 before and after it loaded, the game is 3x3

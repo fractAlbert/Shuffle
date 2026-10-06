@@ -24,5 +24,10 @@ function loadSettings: present with comment
 function flip: present with comment
 function drawBack: present with comment
 function greyscale: present with comment
+function presetBlob: present with comment
+function recommend: present with comment
+function setPreview: present with comment
+function loadPreview: present with comment
+function drawPreview: present with comment
 SIZE: absent
 isSolvable(tiles, cols): present

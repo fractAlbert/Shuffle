@@ -1,685 +1,743 @@
 diff --git a/test-results/verify.cjs b/test-results/verify.cjs
-index 9f30701..f0f2435 100644
+index f0f2435..c7c7f9d 100644
 --- a/test-results/verify.cjs
 +++ b/test-results/verify.cjs
 @@ -1,4 +1,4 @@
--// Verification driver (test tooling, not app code). See plan section 6 of issues #1, #2, #3, #4, #5, #7, #13 and #14.
-+// Verification driver (test tooling, not app code). See plan section 6 of issues #1, #2, #3, #4, #5, #7, #13, #14 and #15.
+-// Verification driver (test tooling, not app code). See plan section 6 of issues #1, #2, #3, #4, #5, #7, #13, #14 and #15.
++// Verification driver (test tooling, not app code). See plan section 6 of issues #1, #2, #3, #4, #5, #7, #13, #14, #15 and #18.
  const fs = require('fs');
  const os = require('os');
  const path = require('path');
-@@ -418,6 +418,141 @@ function expectFits(m, tag, floor) {
-   ok(m.msgB <= m.ih, `${tag}: message bottom ${m.msgB} beyond viewport ${m.ih}`);
+@@ -302,6 +302,7 @@ async function canned(okBytes) {
+   cs.server = http.createServer((req, res) => {
+     const p = req.url.split('?')[0];
+     cs.requests.push(p);
++    if (cs.extra && cs.extra(req, res, p)) return;
+     if (p === '/' || p === '/index.html') { res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' }); res.end(fs.readFileSync(path.join(ROOT, 'index.html'))); return; }
+     if (p === '/images/') {
+       const r = cs.listing(++cs.count);
+@@ -553,10 +554,150 @@ async function expectBackImage(page, fx, o, r, c, tag, say, dprWant = 1) {
+   say(`${tag}: canvas ${p.cssW}x${p.cssH} css, ${p.W}x${p.H} store at dpr ${p.dpr}; 0 non-grey; ${p.samples.length} samples, worst luma error ${worst.toFixed(2)}; cut steps ${p.stepX}/${p.stepY}`);
  }
  
-+// ---- #15 helpers. Expectations come from plan #15 sections 2, 5 and 6, never from the app's code. ----
-+const S_FLIP = '{"grid":{"rows":{"min":3,"max":12},"columns":{"min":3,"max":12}}}';
-+const TIMES = '×';
-+const pairs = (lo, hi) => seq(lo, hi).flatMap((r) => seq(lo, hi).map((c) => [r, c]));
-+// Click Flip, then wait until the plate and the button show the state the click asked for and no animation is running.
-+const flipUI = async (page) => {
-+  const want = (await page.getAttribute('#flip', 'aria-pressed')) !== 'true';
-+  await page.click('#flip');
-+  await page.waitForFunction((w) => {
-+    const p = document.getElementById('plate');
-+    return p.classList.contains('flipped') === w && document.getElementById('flip').getAttribute('aria-pressed') === String(w) && p.getAnimations().length === 0;
-+  }, want);
++// ---- #18 helpers. Expectations come from plan #18 sections 2 (I1-A, I3, I5) and 6, never from the app's code. ----
++const S_REC = '{"grid":{"rows":{"min":4,"max":8},"columns":{"min":3,"max":6}}}';
++const REC_FX = ['landscape.png', 'portrait.png', 'pano.png', 'square.png', 'wide4x3.png'];
++// The plan's literal I1-A anchors per starting game, in REC_FX order (range 3..10).
++const REC_ANCHORS = {
++  '3,3': [[4, 6], [6, 4], [3, 10], [3, 3], [3, 4]],
++  '4,4': [[4, 6], [6, 4], [3, 10], [4, 4], [3, 4]],
++  '3,10': [[4, 6], [6, 4], [3, 10], [5, 5], [5, 7]],
++  '6,5': [[4, 6], [6, 4], [3, 10], [5, 5], [5, 7]],
 +};
-+// Boxes of the back and its parts, the caption text, the cells, scroll widths and the bottom of #message (shown for the measurement).
-+const backGeom = (page) => page.evaluate(() => {
-+  const rc = (e) => { const q = e.getBoundingClientRect(); return { l: q.left, r: q.right, t: q.top, b: q.bottom, w: q.width, h: q.height }; };
-+  const pic = document.getElementById('back-picture'), grid = document.getElementById('back-grid');
-+  const showsPicture = getComputedStyle(pic).display !== 'none';
-+  const showsGrid = getComputedStyle(grid).display !== 'none';
-+  const msg = document.getElementById('message');
-+  const was = msg.hidden;
-+  msg.hidden = false;
-+  const msgB = rc(msg).b;
-+  msg.hidden = was;
-+  const cells = [...grid.children];
-+  return {
-+    back: rc(document.getElementById('back')), frame: rc(document.getElementById('frame')),
-+    panel: rc(showsPicture ? pic : grid), showsPicture, showsGrid,
-+    caption: rc(document.getElementById('back-caption')), capText: document.getElementById('back-caption').textContent,
-+    maker: rc(document.querySelector('.back-maker')), mark: rc(document.querySelector('.back-mark')),
-+    cells: showsGrid ? cells.map((e) => e.textContent || '_') : [],
-+    empties: showsGrid ? cells.filter((e) => e.classList.contains('empty')).length : 0,
-+    emptyLast: showsGrid && cells.length > 0 && cells[cells.length - 1].classList.contains('empty'),
-+    sw: document.documentElement.scrollWidth, cw: document.documentElement.clientWidth, ih: window.innerHeight, msgB,
-+  };
-+});
-+// Throw unless the back of an r x c puzzle is laid out as plan #15 D2 and D5 say.
-+function expectBackLayout(g, r, c, tag) {
-+  const near = (a, b) => Math.abs(a - b) <= 0.5;
-+  ok(near(g.back.l, g.frame.l) && near(g.back.r, g.frame.r) && near(g.back.t, g.frame.t) && near(g.back.b, g.frame.b), `${tag}: back ${JSON.stringify(g.back)} differs from frame ${JSON.stringify(g.frame)}`);
-+  for (const k of ['panel', 'caption', 'maker', 'mark']) ok(inside(g[k], g.back), `${tag}: ${k} ${JSON.stringify(g[k])} outside the back ${JSON.stringify(g.back)}`);
-+  for (const k of ['caption', 'maker', 'mark']) ok(!overlap(g.panel, g[k]), `${tag}: panel overlaps ${k}`);
-+  ok(!overlap(g.maker, g.mark), tag + ': maker overlaps mark');
-+  ok(!overlap(g.maker, g.caption), tag + ': maker overlaps caption');
-+  ok(g.caption.t >= g.panel.b - 0.5, `${tag}: caption top ${g.caption.t} above panel bottom ${g.panel.b}`);
-+  ok(g.capText.trim().length > 0, tag + ': caption text is empty');
-+  ok(g.caption.h >= 10, `${tag}: caption ${g.caption.h}px tall, less than one line`);
-+  const cc = (g.caption.l + g.caption.r) / 2, pc = (g.panel.l + g.panel.r) / 2;
-+  ok(Math.abs(cc - pc) <= 2, `${tag}: caption centre ${cc} vs panel centre ${pc}`);
-+  ok(Math.abs(g.panel.w / c - g.panel.h / r) <= 1, `${tag}: panel ${g.panel.w}x${g.panel.h} not at ${c}:${r}`);
-+  ok(g.sw <= g.cw, `${tag}: horizontal scroll ${g.sw} > ${g.cw}`);
-+  ok(g.msgB <= g.ih, `${tag}: message bottom ${g.msgB} beyond viewport ${g.ih}`);
-+}
-+// Read the whole backing store of #back-picture: sizes, non-grey pixel count, samples at the given fractions, and the largest step across every internal cut.
-+const backPixels = (page, rows, cols, fracs) => page.evaluate(([rows, cols, fracs]) => {
-+  const cv = document.getElementById('back-picture');
-+  const W = cv.width, H = cv.height;
-+  const d = cv.getContext('2d').getImageData(0, 0, W, H).data;
-+  const px = (x, y) => { const i = 4 * (y * W + x); return [d[i], d[i + 1], d[i + 2]]; };
-+  let nonGrey = 0;
-+  for (let i = 0; i < d.length; i += 4) if (d[i] !== d[i + 1] || d[i + 1] !== d[i + 2]) nonGrey++;
-+  const samples = fracs.map(([fx, fy]) => {
-+    const x = Math.min(W - 1, Math.floor(fx * W)), y = Math.min(H - 1, Math.floor(fy * H));
-+    return { fx: (x + 0.5) / W, fy: (y + 0.5) / H, rgb: px(x, y) };
-+  });
-+  let stepX = 0, stepY = 0;
-+  for (let k = 1; k < cols; k++) { const xk = Math.round(k * W / cols); for (let y = 0; y < H; y++) stepX = Math.max(stepX, Math.abs(px(xk - 1, y)[0] - px(xk, y)[0])); }
-+  for (let k = 1; k < rows; k++) { const yk = Math.round(k * H / rows); for (let x = 0; x < W; x++) stepY = Math.max(stepY, Math.abs(px(x, yk - 1)[0] - px(x, yk)[0])); }
-+  return { W, H, cssW: parseFloat(cv.style.width), cssH: parseFloat(cv.style.height), dpr: window.devicePixelRatio, nonGrey, samples, stepX, stepY };
-+}, [rows, cols, fracs]);
-+// Luma the greyscale back must show at fraction (fxF, fyF) of the crop o of fixture fx: the gradient colour R = 255x/(W-1), G = 255y/(H-1), B = 128 (#3 D9), through Rec. 601.
-+function lumaOracle(fx, o, fxF, fyF) {
-+  const x = o.sx + fxF * o.cw, y = o.sy + fyF * o.ch;
-+  const R = 255 * x / (fx.W - 1), G = 255 * y / (fx.H - 1);
-+  return 0.299 * R + 0.587 * G + 0.114 * 128;
-+}
-+// Screenshot clip, decoded in the page (no request): bright (R > 180) pixel counts per x-band, and the non-grey pixel count inside grey.
-+// A band is [name, x0, x1] in clip px (a negative x counts from the right edge); bands count only y in [radius, H - radius].
-+async function shotStats(page, clip, bands, grey, radius = 14) {
-+  const b64 = (await page.screenshot({ clip })).toString('base64');
-+  return page.evaluate(async ([b64, bands, grey, radius]) => {
-+    const bin = atob(b64);
-+    const bytes = new Uint8Array(bin.length);
-+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-+    const bmp = await createImageBitmap(new Blob([bytes], { type: 'image/png' }));
-+    const W = bmp.width, H = bmp.height;
-+    const g = new OffscreenCanvas(W, H).getContext('2d', { willReadFrequently: true });
-+    g.drawImage(bmp, 0, 0);
-+    const d = g.getImageData(0, 0, W, H).data;
-+    const out = { W, H, bright: {}, nonGrey: 0 };
-+    for (const [name, a, b] of bands) {
-+      const x0 = a < 0 ? W + a : a, x1 = b < 0 ? W + b : b;
-+      let n = 0;
-+      for (let y = radius; y <= H - radius; y++) for (let x = x0; x < x1; x++) if (d[4 * (y * W + x)] > 180) n++;
-+      out.bright[name] = n;
-+    }
-+    for (let y = Math.max(0, Math.floor(grey.y)); y < Math.min(H, Math.ceil(grey.y + grey.h)); y++) {
-+      for (let x = Math.max(0, Math.floor(grey.x)); x < Math.min(W, Math.ceil(grey.x + grey.w)); x++) {
++// The plan's real presets from 3x3 (I1-A): name fragment, natural size, expected selects.
++const REC_REAL = [['Nighthawks', 750, 409, [4, 7]], ['Sleeping Gypsy', 1024, 636, [3, 5]], ['Napoleon', 750, 896, [5, 4]], ['Whistler', 750, 667, [6, 7]], ['Great Wave', 1200, 800, [4, 6]], ['Birth of Venus', 750, 471, [3, 5]]];
++// In-memory gradient fixtures, made like landscape.png and never written to disk.
++async function makeExtraFixtures(browser) {
++  const ctx = await browser.newContext();
++  const pg = await ctx.newPage();
++  for (const [name, W, H] of [['pano.png', 1200, 300], ['square.png', 500, 500], ['wide4x3.png', 800, 600]]) {
++    const b64 = await pg.evaluate(([W, H]) => {
++      const cv = document.createElement('canvas');
++      cv.width = W; cv.height = H;
++      const g = cv.getContext('2d');
++      const d = g.createImageData(W, H);
++      for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
 +        const i = 4 * (y * W + x);
-+        if (Math.abs(d[i] - d[i + 1]) > 3 || Math.abs(d[i + 1] - d[i + 2]) > 3) out.nonGrey++;
++        d.data[i] = Math.round(255 * x / (W - 1)); d.data[i + 1] = Math.round(255 * y / (H - 1)); d.data[i + 2] = 128; d.data[i + 3] = 255;
 +      }
-+    }
-+    return out;
-+  }, [b64, bands, grey, radius]);
-+}
-+// Rendered proof of the back: bright pixels in the right and left bands, and non-grey pixels inside the panel (inset 2px).
-+async function backShot(page, g) {
-+  const clip = { x: g.back.l, y: g.back.t, width: g.back.w, height: g.back.h };
-+  const grey = { x: g.panel.l - g.back.l + 2, y: g.panel.t - g.back.t + 2, w: g.panel.w - 4, h: g.panel.h - 4 };
-+  return shotStats(page, clip, [['right', -24, -4], ['left', 4, 12]], grey);
-+}
-+// With the back showing an image puzzle: layout, grey pixels, luma against the oracle at 30 points and the last cell, and no seams.
-+async function expectBackImage(page, fx, o, r, c, tag, say, dprWant = 1) {
-+  const g = await backGeom(page);
-+  ok(g.showsPicture && !g.showsGrid, tag + ': picture not shown, or grid still shown');
-+  expectBackLayout(g, r, c, tag);
-+  const fracs = [];
-+  for (const fy of [0.1, 0.3, 0.5, 0.7, 0.9]) for (const fxx of [0.1, 0.3, 0.5, 0.7, 0.9, 0.97]) fracs.push([fxx, fy]);
-+  fracs.push([(c - 0.5) / c, (r - 0.5) / r]);
-+  const p = await backPixels(page, r, c, fracs);
-+  eq(p.dpr, dprWant, tag + ' devicePixelRatio');
-+  eq([p.W, p.H], [Math.round(p.cssW * p.dpr), Math.round(p.cssH * p.dpr)], tag + ' backing store against css size');
-+  ok(Math.abs(p.cssW / c - p.cssH / r) <= 1, `${tag}: canvas ${p.cssW}x${p.cssH} not at ${c}:${r}`);
-+  eq(p.nonGrey, 0, tag + ' non-grey pixels');
-+  let worst = 0;
-+  for (const s of p.samples) {
-+    const want = lumaOracle(fx, o, s.fx, s.fy);
-+    const err = Math.abs(s.rgb[0] - want);
-+    worst = Math.max(worst, err);
-+    ok(err <= 3, `${tag}: sample (${s.fx.toFixed(3)}, ${s.fy.toFixed(3)}) is ${s.rgb} but the oracle luma is ${want.toFixed(1)}`);
++      g.putImageData(d, 0, 0);
++      return cv.toDataURL('image/png').split(',')[1];
++    }, [W, H]);
++    FIX[name] = { name, mimeType: 'image/png', buffer: Buffer.from(b64, 'base64'), W, H };
 +  }
-+  ok(p.stepX <= 3 && p.stepY <= 3, `${tag}: seam, largest step across a cut ${p.stepX}/${p.stepY}`);
-+  say(`${tag}: canvas ${p.cssW}x${p.cssH} css, ${p.W}x${p.H} store at dpr ${p.dpr}; 0 non-grey; ${p.samples.length} samples, worst luma error ${worst.toFixed(2)}; cut steps ${p.stepX}/${p.stepY}`);
++  await ctx.close();
 +}
++// Recommendation oracle (I1-A, from the plan's text): the offered sizes whose shape is within 5% (in ratio) of the closest shape; of those, the tile count nearest the current game's, then fewer tiles, then fewer rows.
++function recOracle(W, H, cur, range) {
++  const sizes = [];
++  for (const r of range.rows) for (const c of range.cols) { const q = (c / r) / (W / H); sizes.push({ r, c, off: Math.max(q, 1 / q) }); }
++  const best = Math.min(...sizes.map((s) => s.off));
++  const near = sizes.filter((s) => s.off <= best * Math.exp(0.05) * (1 + 1e-9));
++  const n0 = cur[0] * cur[1];
++  near.sort((a, b) => Math.abs(a.r * a.c - n0) - Math.abs(b.r * b.c - n0) || a.r * a.c - b.r * b.c || a.r - b.r);
++  return [near[0].r, near[0].c];
++}
++const RANGE_3_10 = { rows: seq(3, 10), cols: seq(3, 10) };
++const pickFile = (page, fx) => page.setInputFiles('#image-file', { name: fx.name, mimeType: fx.mimeType, buffer: fx.buffer });
++const selectsOf = (page) => page.evaluate(() => [Number(document.getElementById('rows').value), Number(document.getElementById('cols').value)]);
++// The preview canvas: visibility, state, CSS box, backing size, devicePixelRatio and window height.
++const previewOf = (page) => page.$eval('#new-preview', (cv) => {
++  const r = cv.getBoundingClientRect();
++  return { hidden: cv.hidden, display: getComputedStyle(cv).display, state: cv.dataset.state, cssW: r.width, cssH: r.height, bw: cv.width, bh: cv.height, dpr: window.devicePixelRatio, ih: window.innerHeight };
++});
++// RGBA of the backing store at each [x, y] (backing px).
++const previewPx = (page, pts) => page.$eval('#new-preview', (cv, pts) => {
++  const g = cv.getContext('2d');
++  return pts.map(([x, y]) => Array.from(g.getImageData(Math.min(cv.width - 1, Math.max(0, Math.floor(x))), Math.min(cv.height - 1, Math.max(0, Math.floor(y))), 1, 1).data));
++}, pts);
++// Backing-store pixels whose blue is under 90: only the dimmed overflow (blue 128 x 0.4) is that dark.
++const dimmedCount = (page) => page.$eval('#new-preview', (cv) => {
++  const d = cv.getContext('2d').getImageData(0, 0, cv.width, cv.height).data;
++  let n = 0;
++  for (let i = 0; i < d.length; i += 4) if (d[i + 2] < 90) n++;
++  return n;
++});
++// Runs of white (all channels >= 250) pixels along row y (axis 'x') or column x (axis 'y'): [start, length] each.
++const whiteRuns = (page, axis, at) => page.$eval('#new-preview', (cv, [axis, at]) => {
++  const g = cv.getContext('2d');
++  const n = axis === 'x' ? cv.width : cv.height;
++  const d = axis === 'x' ? g.getImageData(0, Math.floor(at), cv.width, 1).data : g.getImageData(Math.floor(at), 0, 1, cv.height).data;
++  const runs = [];
++  for (let i = 0; i < n; i++) {
++    if (d[4 * i] >= 250 && d[4 * i + 1] >= 250 && d[4 * i + 2] >= 250) { if (runs.length && runs[runs.length - 1][0] + runs[runs.length - 1][1] === i) runs[runs.length - 1][1]++; else runs.push([i, 1]); }
++  }
++  return runs;
++}, [axis, at]);
++// Wait until #new-preview's data-state is the wanted one (and, with a fixture, its box has that picture's shape: the old picture may still be showing).
++const waitPreview = (page, state = 'ready', fx = null) => page.waitForFunction(([s, a]) => {
++  const cv = document.getElementById('new-preview');
++  if (cv.dataset.state !== s) return false;
++  if (!a) return true;
++  const q = cv.getBoundingClientRect();
++  return Math.abs(q.width / q.height - a) <= 0.03 * a;
++}, [state, fx ? fx.W / fx.H : null]);
++const until = async (fn, what, ms = 8000) => { const t0 = Date.now(); while (!fn()) { if (Date.now() - t0 > ms) throw new Error('timed out waiting for ' + what); await sleep(50); } };
++// Throw unless the shown preview of fixture fx at r x c is laid out, lit, dimmed and cut as plan I3 and I5 say.
++async function expectPreview(page, fx, r, c, dprWant, tag, say) {
++  const p = await previewOf(page);
++  ok(!p.hidden && p.display !== 'none', tag + ': preview hidden');
++  eq(p.state, 'ready', tag + ' data-state');
++  eq(p.dpr, dprWant, tag + ' devicePixelRatio');
++  ok(Math.abs(p.cssH - p.cssW * fx.H / fx.W) <= 1, `${tag}: css ${p.cssW}x${p.cssH} is not the picture's shape ${fx.W}:${fx.H}`);
++  eq([p.bw, p.bh], [Math.round(p.cssW * p.dpr), Math.round(p.cssH * p.dpr)], tag + ' backing store against css size');
++  const limH = Math.min(200, p.ih / 4);
++  ok(p.cssW <= 400.01 && p.cssH <= limH + 0.01, `${tag}: css ${p.cssW}x${p.cssH} over the 400x${limH} box`);
++  ok(p.cssW >= 399 || p.cssH >= limH - 1, `${tag}: css ${p.cssW}x${p.cssH} does not reach a limit of the 400x${limH} box`);
++  const o = cropOracle(fx.W, fx.H, r, c, 1, fx.W / 2, fx.H / 2);
++  const sx = p.bw / fx.W, sy = p.bh / fx.H;
++  const x0 = o.sx * sx, x1 = (o.sx + o.cw) * sx, y0 = o.sy * sy, y1 = (o.sy + o.ch) * sy;
++  const t = Math.max(1, Math.round(p.dpr));
++  const vline = (k) => x0 + k * (x1 - x0) / c, hline = (k) => y0 + k * (y1 - y0) / r;
++  const onLine = (x, y) => seq(1, c - 1).some((k) => Math.abs(x - vline(k)) <= t + 2) || seq(1, r - 1).some((k) => Math.abs(y - hline(k)) <= t + 2);
++  const grad = (px, py) => [255 * ((Math.floor(px) + 0.5) * fx.W / p.bw) / (fx.W - 1), 255 * ((Math.floor(py) + 0.5) * fx.H / p.bh) / (fx.H - 1), 128];
++  // Lit: a 7x7 grid inside the lit rect, off the cut lines, is the picture at full brightness.
++  const lit = [];
++  for (let i = 0; i < 7; i++) for (let j = 0; j < 7; j++) { const x = x0 + (i + 0.5) / 7 * (x1 - x0), y = y0 + (j + 0.5) / 7 * (y1 - y0); if (!onLine(x, y)) lit.push([x, y]); }
++  ok(lit.length >= 10, `${tag}: only ${lit.length} lit sample points off the cut lines`);
++  const litPx = await previewPx(page, lit);
++  let worst = 0;
++  lit.forEach(([x, y], i) => { const want = grad(x, y); for (let k = 0; k < 3; k++) { const e = Math.abs(litPx[i][k] - want[k]); worst = Math.max(worst, e); ok(e <= 6, `${tag}: lit pixel (${Math.floor(x)}, ${Math.floor(y)}) is ${litPx[i].slice(0, 3)}, the gradient says ${want.map((v) => v.toFixed(0))}`); } });
++  // Dimmed: each band outside the lit rect (when at least 4 backing px wide) is 0.4 of the gradient.
++  const dim = [];
++  for (let j = 0; j < 7; j++) {
++    const f = (j + 0.5) / 7;
++    if (x0 >= 4) dim.push([x0 / 2, f * p.bh]);
++    if (p.bw - x1 >= 4) dim.push([(x1 + p.bw) / 2, f * p.bh]);
++    if (y0 >= 4) dim.push([f * p.bw, y0 / 2]);
++    if (p.bh - y1 >= 4) dim.push([f * p.bw, (y1 + p.bh) / 2]);
++  }
++  const whole = o.cw >= fx.W - 0.5 && o.ch >= fx.H - 0.5;
++  const dimmed = await dimmedCount(page);
++  if (whole) { eq(dim.length, 0, tag + ' dim sample points when the shapes match'); eq(dimmed, 0, tag + ' dimmed pixels when the shapes match'); } else { ok(dim.length >= 7, `${tag}: only ${dim.length} dim sample points`); ok(dimmed > 0, tag + ': nothing dimmed although the crop is smaller than the picture'); }
++  const dimPx = await previewPx(page, dim);
++  dim.forEach(([x, y], i) => { const want = grad(x, y).map((v) => v * 0.4); for (let k = 0; k < 3; k++) ok(Math.abs(dimPx[i][k] - want[k]) <= 6, `${tag}: dimmed pixel (${Math.floor(x)}, ${Math.floor(y)}) is ${dimPx[i].slice(0, 3)}, 0.4 x gradient says ${want.map((v) => v.toFixed(0))}`); });
++  // Cut lines: c-1 white runs along the middle of the first cell row, r-1 down the first cell column, each t wide, within 1 backing px of the oracle position.
++  const vr = await whiteRuns(page, 'x', y0 + 0.5 * (y1 - y0) / r), hr = await whiteRuns(page, 'y', x0 + 0.5 * (x1 - x0) / c);
++  eq(vr.length, c - 1, tag + ' vertical cut lines');
++  eq(hr.length, r - 1, tag + ' horizontal cut lines');
++  vr.forEach(([s, n], i) => { eq(n, t, `${tag} vertical line ${i + 1} width`); ok(Math.abs(s - vline(i + 1)) <= 1.01, `${tag}: vertical line ${i + 1} at ${s}, oracle ${vline(i + 1).toFixed(2)}`); });
++  hr.forEach(([s, n], i) => { eq(n, t, `${tag} horizontal line ${i + 1} width`); ok(Math.abs(s - hline(i + 1)) <= 1.01, `${tag}: horizontal line ${i + 1} at ${s}, oracle ${hline(i + 1).toFixed(2)}`); });
++  say(`${tag}: css ${p.cssW}x${p.cssH}, store ${p.bw}x${p.bh} at dpr ${p.dpr}; lit rect (${x0.toFixed(1)}, ${y0.toFixed(1)})-(${x1.toFixed(1)}, ${y1.toFixed(1)}); ${lit.length} lit and ${dim.length} dim samples, worst lit error ${worst.toFixed(2)}; ${dimmed} dimmed px; ${vr.length}+${hr.length} cut lines`);
++  return { p, o };
++}
++const recAllowed = (u) => {
++  if (u === PAGE_URL || u === 'data:,') return true;
++  if (u.startsWith('blob:')) { const inner = u.slice(5); if (inner.startsWith('null/')) return true; try { return driverOrigins.has(new URL(inner).origin); } catch (_) { return false; } }
++  let q;
++  try { q = new URL(u); } catch (_) { return false; }
++  return driverOrigins.has(q.origin) && (q.pathname === '/' || q.pathname === '/index.html' || q.pathname === '/settings.json' || q.pathname.startsWith('/images/'));
++};
 +
  async function main() {
    const browser = await chromium.launch({ channel: 'chrome', headless: true });
    const tmpVideo = fs.mkdtempSync(path.join(os.tmpdir(), 'shuffle-video-'));
-@@ -783,7 +918,7 @@ async function main() {
-           msg.hidden = false;
-           const msgBox = rc(msg);
-           msg.hidden = was;
--          return { fr, well: rc(document.querySelector('.well')), tiles, emptyBg: bg('.tile.empty'), tileBg: bg('.tile:not(.empty)'), emptyColour: bgColour('.tile.empty'), tileColour: bgColour('.tile:not(.empty)'), board: rc(document.getElementById('board')), sw: document.documentElement.scrollWidth, cw: document.documentElement.clientWidth, ih: window.innerHeight, actions: rc(document.querySelector('.actions')), status: rc(document.querySelector('.status')), shuffle: rc(document.getElementById('shuffle')), msgBox };
-+          return { fr, well: rc(document.querySelector('.well')), tiles, emptyBg: bg('.tile.empty'), tileBg: bg('.tile:not(.empty)'), emptyColour: bgColour('.tile.empty'), tileColour: bgColour('.tile:not(.empty)'), board: rc(document.getElementById('board')), sw: document.documentElement.scrollWidth, cw: document.documentElement.clientWidth, ih: window.innerHeight, actions: rc(document.querySelector('.actions')), status: rc(document.querySelector('.status')), shuffle: rc(document.getElementById('shuffle')), flip: rc(document.getElementById('flip')), msgBox };
-         });
-         const tag = `${w}x${h} ${r}x${c}`;
-         say(`${tag}: tile ${m.tiles[0].w.toFixed(1)}px, frame ${m.fr.l.toFixed(1)}..${m.fr.r.toFixed(1)}, cw ${m.cw}, msgBottom ${m.msgBox.b.toFixed(1)}`);
-@@ -794,7 +929,7 @@ async function main() {
-         ok(m.emptyBg !== m.tileBg, tag + ': empty bg equals tile bg');
-         ok(m.emptyColour !== m.tileColour, tag + ': empty background-color equals tile background-color (#2 assertion)');
-         ok(Math.abs(m.fr.l - (m.cw - m.fr.r)) <= 2, `${tag}: frame margins ${m.fr.l} vs ${m.cw - m.fr.r}`);
--        for (const [k, q] of [['.actions', m.actions], ['.status', m.status], ['#shuffle', m.shuffle], ['#message', m.msgBox]]) ok(q.l >= 0 && q.r <= m.cw, `${tag}: ${k} outside [0, clientWidth]`);
-+        for (const [k, q] of [['.actions', m.actions], ['.status', m.status], ['#shuffle', m.shuffle], ['#flip', m.flip], ['#message', m.msgBox]]) ok(q.l >= 0 && q.r <= m.cw, `${tag}: ${k} outside [0, clientWidth]`);
-         ok(m.msgBox.b <= m.ih, `${tag}: message bottom ${m.msgBox.b} beyond viewport ${m.ih}`);
-         ok(m.tiles.every((q) => q.l >= 0 && q.r <= m.cw), tag + ': tile outside [0, clientWidth]');
-         ok(m.tiles.every((q) => inside(q, m.well)), tag + ': tile outside well');
-@@ -849,7 +984,11 @@ async function main() {
-         nonVacuous(nwC, tag + ' #new', say);
-         ok(nwC.every((x) => maxc(x) <= 64), tag + ': #new not dark plastic');
-         ok(rgbOf(await style(page, '#new', 'color')).every((v) => v >= 230), tag + ': #new text not white');
--        for (const sel of ['#moves', '#timer', '#shuffle', '#new']) ok(!overlap(await rect(page, sel), fr), `${tag}: ${sel} intersects frame`);
-+        const flC = await colours(page, '#flip');
-+        nonVacuous(flC, tag + ' #flip', say);
-+        ok(flC.every((x) => maxc(x) <= 64), tag + ': #flip not dark plastic');
-+        ok(rgbOf(await style(page, '#flip', 'color')).every((v) => v >= 230), tag + ': #flip text not white');
-+        for (const sel of ['#moves', '#timer', '#shuffle', '#new', '#flip']) ok(!overlap(await rect(page, sel), fr), `${tag}: ${sel} intersects frame`);
-         await shot(page, dir, `${r}x${c}-${w}.png`);
-       }
-     }
-@@ -916,7 +1055,7 @@ async function main() {
+   await makeFixtures(browser);
++  await makeExtraFixtures(browser);
+ 
+   async function newPage(opts = {}, pageUrl = PAGE_URL) {
+     const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 }, ...opts });
+@@ -1055,7 +1196,7 @@ async function main() {
  
    await run('code-shape', async ({ say }) => {
      const html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
--    for (const f of ['render', 'move', 'setSize', 'shuffle', 'isSolvable', 'isSolved', 'checkWin', 'openNew', 'startNew', 'onDecoded', 'onRejected', 'cropRect', 'openCrop', 'drawCrop', 'moveCrop', 'cutImage', 'cropDone', 'loadPresets', 'parseListing', 'onListed', 'gridRange', 'applyRange', 'loadSettings']) {
-+    for (const f of ['render', 'move', 'setSize', 'shuffle', 'isSolvable', 'isSolved', 'checkWin', 'openNew', 'startNew', 'onDecoded', 'onRejected', 'cropRect', 'openCrop', 'drawCrop', 'moveCrop', 'cutImage', 'cropDone', 'loadPresets', 'parseListing', 'onListed', 'gridRange', 'applyRange', 'loadSettings', 'flip', 'drawBack', 'greyscale']) {
+-    for (const f of ['render', 'move', 'setSize', 'shuffle', 'isSolvable', 'isSolved', 'checkWin', 'openNew', 'startNew', 'onDecoded', 'onRejected', 'cropRect', 'openCrop', 'drawCrop', 'moveCrop', 'cutImage', 'cropDone', 'loadPresets', 'parseListing', 'onListed', 'gridRange', 'applyRange', 'loadSettings', 'flip', 'drawBack', 'greyscale']) {
++    for (const f of ['render', 'move', 'setSize', 'shuffle', 'isSolvable', 'isSolved', 'checkWin', 'openNew', 'startNew', 'onDecoded', 'onRejected', 'cropRect', 'openCrop', 'drawCrop', 'moveCrop', 'cutImage', 'cropDone', 'loadPresets', 'parseListing', 'onListed', 'gridRange', 'applyRange', 'loadSettings', 'flip', 'drawBack', 'greyscale', 'presetBlob', 'recommend', 'setPreview', 'loadPreview', 'drawPreview']) {
        const re = new RegExp('//[^\\n]*\\r?\\n\\s*function ' + f + '\\b');
        ok(re.test(html), `function ${f} missing or has no comment above`);
        say(`function ${f}: present with comment`);
-@@ -1754,7 +1893,7 @@ async function main() {
-     S.c = await serve(path.join(tmpRoot, 'C'), async (o) => (await httpGet(o + '/images/')).body.includes('no listing'));
-     S.d = await serve(path.join(tmpRoot, 'D'), async (o) => { const r = await httpGet(o + '/images/'); return r.status === 200 && !r.body.includes('<li>'); });
-     cn = await canned(FIX['landscape.png'].buffer);
--    for (const [k, body] of [['s-edit', S_EDIT], ['s-missing', null], ['s-bad', S_BAD], ['s-values', S_VALUES], ['s-near', S_NEAR]]) {
-+    for (const [k, body] of [['s-edit', S_EDIT], ['s-missing', null], ['s-bad', S_BAD], ['s-values', S_VALUES], ['s-near', S_NEAR], ['s-flip', S_FLIP]]) {
-       S[k] = await serve(settingsRoot(k, body), settingsProbe(body));
-     }
-   } catch (e) {
-@@ -2453,6 +2592,474 @@ async function main() {
-     say('README Settings section: after Run, json block equals settings.json, keywords present');
-   }, { shoot: false });
+@@ -1359,13 +1500,14 @@ async function main() {
+     const fx = FIX['landscape.png'];
+     await page.setInputFiles('#image-file', { name: fx.name, mimeType: fx.mimeType, buffer: fx.buffer });
+     ok(await page.isChecked('#kind-image'), 'choosing a file did not check Image');
++    await waitPreview(page);
+     await page.click('#new-start');
+     await page.waitForSelector('#crop-dialog[open]');
+     ok(await isOpen(page, 'crop-dialog'), 'crop dialog not open');
+     await cropDoneUI(page);
+-    eq(await imgBoard(page), solvedBoard(9), 'image board');
+-    eq(await page.$$eval('#board .tile.image', (e) => e.length), 8, 'image tile count');
+-    say('file chosen -> Image checked -> Start -> crop dialog -> Done -> 8 image tiles, solved');
++    eq(await imgBoard(page), solvedBoard(24), 'image board');
++    eq(await page.$$eval('#board .tile.image', (e) => e.length), 23, 'image tile count');
++    say('file chosen -> Image checked -> Start -> crop dialog -> Done -> 23 image tiles (landscape recommends 4x6), solved');
+   });
  
-+  // ---- #15 flip the board. Each check starts with reduced motion (instant flips) unless it is about motion. ----
-+  const reduce = (page) => page.emulateMedia({ reducedMotion: 'reduce' });
-+  const centreOf = async (page, sel) => { const q = await rect(page, sel); return { x: q.l + q.w / 2, y: q.t + q.h / 2 }; };
-+  const snap = async (page) => ({ board: await board(page), html: await page.$eval('#board', (e) => e.outerHTML), moves: await movesOf(page), msgHidden: await page.$eval('#message', (e) => e.hidden) });
-+  const pressedOf = (page) => page.getAttribute('#flip', 'aria-pressed');
-+  const BACK_SHOTS = new Set(['3x3', '10x10', '3x10', '10x3', '12x12', '3x12']);
-+  // Own-file flow with an arbitrary file name: New, size, file, Start, Done.
-+  const ownFileUI = async (pg, r, c, fileName) => {
-+    await pg.click('#new');
-+    await pg.selectOption('#rows', String(r));
-+    await pg.selectOption('#cols', String(c));
-+    await pg.setInputFiles('#image-file', { name: fileName, mimeType: 'image/png', buffer: FIX['landscape.png'].buffer });
-+    await pg.click('#new-start');
-+    await pg.waitForSelector('#crop-dialog[open]');
-+    await cropDoneUI(pg);
-+  };
+   // image-sizes: C2. Every size 3..10 x 3..10 with an image: split, mapping, solved start.
+@@ -2112,7 +2254,7 @@ async function main() {
+     page.on('request', (r) => seen.push(r.url()));
+     await page.goto(PAGE_URL);
+     await flow(page, '(a) file://', 'Preset pictures need Shuffle served over HTTP (see README).', 'fallback-a-file.png');
+-    eq(seen.filter((u) => u !== PAGE_URL && u !== 'data:,'), [], '(a) requests other than the page');
++    eq(seen.filter((u) => u !== PAGE_URL && u !== 'data:,' && !u.startsWith('blob:null/')), [], '(a) requests other than the page');
+     expectConsole(S.b.origin + '/images/');
+     const NONE = 'No preset pictures found.';
+     for (const [tag, srv, nm] of [['(b) 404', S.b, 'fallback-b-404.png'], ['(c) no links', S.c, 'fallback-c-nolinks.png'], ['(d) empty', S.d, 'fallback-d-empty.png']]) {
+@@ -3060,6 +3202,529 @@ async function main() {
+   }, { url: cn ? cn.origin + '/' : undefined });
+   if (cn) cn.settings = null;
+ 
++  // ---- #18 recommend a grid size from the picture and preview it. Expected values come from plan #18 sections 2 and 6 (I1-A), never from the app's code. ----
++  const recMark = requests.length;
 +
-+  // flip-control: AC1, owner 3. The Flip button sits with New and Shuffle, visibly apart from them.
-+  await run('flip-control', async ({ page, dir, say }) => {
-+    await reduce(page);
-+    const f = await page.$eval('#flip', (e) => {
-+      const p = e.previousElementSibling;
-+      return { tag: e.tagName, type: e.getAttribute('type'), text: e.textContent, pressed: e.getAttribute('aria-pressed'), inActions: !!e.closest('.actions'), prevIsSep: !!(p && p.classList.contains('sep')), sepAfterShuffle: !!(p && p.previousElementSibling && p.previousElementSibling.id === 'shuffle') };
-+    });
-+    eq(f, { tag: 'BUTTON', type: 'button', text: 'Flip', pressed: 'false', inActions: true, prevIsSep: true, sepAfterShuffle: true }, 'flip button');
-+    for (const [w, h] of VIEWS) {
-+      await page.setViewportSize({ width: w, height: h });
-+      for (const [r, c] of [[3, 3], [10, 10], [3, 10]]) {
-+        await setSizeUI(page, r, c);
-+        const tag = `${w}x${h} ${r}x${c}`;
-+        const nw = await rect(page, '#new'), sh = await rect(page, '#shuffle'), sp = await rect(page, '.actions .sep'), fl = await rect(page, '#flip'), ac = await rect(page, '.actions'), fr = await rect(page, '.frame');
-+        const cw = await page.evaluate(() => document.documentElement.clientWidth);
-+        say(`${tag}: New-Shuffle gap ${(sh.l - nw.r).toFixed(1)}, Shuffle-Flip gap ${(fl.l - sh.r).toFixed(1)}, actions ${ac.l.toFixed(1)}..${ac.r.toFixed(1)} of ${cw}`);
-+        ok(fl.l - sh.r >= 2 * (sh.l - nw.r), `${tag}: Flip gap ${fl.l - sh.r} is under twice the New-Shuffle gap ${sh.l - nw.r}`);
-+        ok(sp.l >= sh.r - 0.5 && sp.r <= fl.l + 0.5, tag + ': separator not between Shuffle and Flip');
-+        const fC = await colours(page, '#flip');
-+        nonVacuous(fC, tag + ' #flip', say);
-+        ok(fC.every((x) => maxc(x) <= 64), tag + ': #flip not dark plastic');
-+        ok(rgbOf(await style(page, '#flip', 'color')).every((v) => v >= 230), tag + ': #flip text not white');
-+        ok(ac.l >= 0 && ac.r <= cw, tag + ': .actions outside [0, clientWidth]');
-+        ok(fl.l >= 0 && fl.r <= cw, tag + ': #flip outside [0, clientWidth]');
-+        ok(!overlap(fl, fr), tag + ': #flip intersects the frame');
-+      }
-+      await page.locator('.actions').screenshot({ path: path.join(dir, `actions-${w}.png`) });
-+    }
-+  });
-+
-+  // flip-front-unchanged: AC1, owner 1, 2, 4. Flipping changes nothing about the game, and the timer keeps running. Normal motion.
-+  await run('flip-front-unchanged', async ({ page, say }) => {
-+    // (a) numbers 3x3, timer running.
-+    await click(page, 7);
-+    eq(await movesOf(page), 1, '(a) moves after one slide');
-+    const before = await snap(page);
-+    await flipUI(page);
-+    eq(await pressedOf(page), 'true', '(a) aria-pressed on the back');
-+    const t0 = await timerOf(page);
-+    await page.waitForFunction((t) => Number(document.getElementById('timer').textContent.match(/(\d+)s/)[1]) >= t, t0 + 2);
-+    const tBack = await timerOf(page);
-+    ok(tBack >= t0 + 2, `(a) timer did not keep running on the back (${t0} -> ${tBack})`);
-+    eq(await movesOf(page), 1, '(a) moves on the back');
-+    const text = (await page.evaluate(() => document.body.innerText)).toLowerCase();
-+    for (const w of ['peek', 'penalty', 'cheat']) ok(!text.includes(w), `(a) page text mentions "${w}"`);
-+    await flipUI(page);
-+    eq(await snap(page), before, '(a) board, markup, moves and message after flipping back');
-+    eq(await pressedOf(page), 'false', '(a) aria-pressed on the front');
-+    ok((await timerOf(page)) >= tBack, '(a) timer went backwards');
-+    say(`(a) numbers: one move, flipped for the timer to go ${t0} -> ${tBack}; board, markup, moves unchanged after flipping back; no peek/penalty/cheat text`);
-+    // (b) a won board does not flip by itself, and the back and timer behave.
-+    await setSizeUI(page, 3, 3);
-+    await click(page, 7);
-+    await click(page, 8);
-+    ok(await page.isVisible('#message'), '(b) message not visible after the solve');
-+    const T = await timerOf(page);
-+    ok(!(await page.$eval('#plate', (e) => e.classList.contains('flipped'))), '(b) the board flipped by itself on the solve');
-+    eq(await pressedOf(page), 'false', '(b) aria-pressed after the solve');
-+    await flipUI(page);
-+    ok(await page.isVisible('#message'), '(b) message hidden on the back');
-+    const g = await backGeom(page);
-+    eq(g.cells, solvedBoard(9), '(b) the back grid');
-+    await sleep(1200);
-+    eq(await timerOf(page), T, '(b) frozen timer moved on the back');
-+    await flipUI(page);
-+    eq(await board(page), SOLVED, '(b) board after flipping back');
-+    ok(await page.isVisible('#message'), '(b) message after flipping back');
-+    eq(await movesOf(page), 2, '(b) moves');
-+    say(`(b) won board: no automatic flip, message stays, back grid solved, timer stayed ${T}, moves 2`);
-+    // (c) image 3x3.
-+    await newImageUI(page, 3, 3, 'landscape.png');
-+    await cropDoneUI(page);
-+    await page.click('#shuffle');
-+    const lab = await imgBoard(page), smp = await pieceSample(page);
-+    await flipUI(page);
-+    await flipUI(page);
-+    eq(await imgBoard(page), lab, '(c) image labels');
-+    eq(await pieceSample(page), smp, '(c) piece samples');
-+    eq(await movesOf(page), 0, '(c) moves');
-+    say('(c) image 3x3: labels and piece pixels unchanged after two flips, moves 0');
-+  }, { video: true });
-+
-+  // flip-no-moves: AC4. While the back shows, the board cannot be played and New and Shuffle are off.
-+  await run('flip-no-moves', async ({ page, say }) => {
-+    await reduce(page);
-+    // (a) numbers 3x3 from solved: the tiles next to the gap are 5 and 7.
-+    const c5 = await centreOf(page, '#board .tile[data-index="5"]'), c7 = await centreOf(page, '#board .tile[data-index="7"]');
-+    await flipUI(page);
-+    ok(await page.$eval('#frame', (e) => e.inert), '(a) #frame not inert on the back');
-+    for (const c of [c5, c7]) {
-+      ok(await page.evaluate(([x, y]) => !!document.elementFromPoint(x, y).closest('#back'), [c.x, c.y]), '(a) the back is not what lies over the front tile');
-+      await page.mouse.click(c.x, c.y);
-+    }
-+    eq(await movesOf(page), 0, '(a) moves after clicking where tiles 5 and 7 were');
-+    eq(await board(page), SOLVED, '(a) board after those clicks');
-+    ok(await page.$eval('#new', (e) => e.disabled) && await page.$eval('#shuffle', (e) => e.disabled), '(a) New and Shuffle not disabled on the back');
-+    const forbidden = [];
-+    let reachedFlip = false;
-+    await page.evaluate(() => { if (document.activeElement) document.activeElement.blur(); });
-+    for (let k = 0; k < 15; k++) {
-+      await page.keyboard.press('Tab');
-+      const a = await page.evaluate(() => ({ id: document.activeElement.id, tile: document.activeElement.classList.contains('tile') }));
-+      if (a.tile || a.id === 'new' || a.id === 'shuffle') forbidden.push(a);
-+      if (a.id === 'flip') reachedFlip = true;
-+    }
-+    eq(forbidden, [], '(a) Tab reached a tile, New or Shuffle');
-+    ok(reachedFlip, '(a) Tab never reached Flip');
-+    await page.focus('#flip');
-+    await page.keyboard.press('Enter');
-+    await page.waitForFunction(() => document.getElementById('flip').getAttribute('aria-pressed') === 'false' && !document.getElementById('plate').classList.contains('flipped') && document.getElementById('plate').getAnimations().length === 0);
-+    ok(!(await page.$eval('#frame', (e) => e.inert)), '(a) #frame still inert after flipping back');
-+    ok(!(await page.$eval('#new', (e) => e.disabled)) && !(await page.$eval('#shuffle', (e) => e.disabled)), '(a) New or Shuffle still disabled on the front');
-+    await click(page, 7);
-+    eq(await movesOf(page), 1, '(a) the front is live again');
-+    say('(a) numbers: frame inert, clicks over the front tiles ignored, New/Shuffle disabled, 15 Tabs never left Flip, Enter flipped back, a click then moved');
-+    // (b) a click at once after Flip, while the plate is still turning.
-+    await withPage(PAGE_URL, async (pg) => {
-+      const c = await centreOf(pg, '#board .tile[data-index="7"]');
-+      await pg.click('#flip');
-+      await pg.mouse.click(c.x, c.y);
-+      eq(await movesOf(pg), 0, '(b) moves after a click during the turn');
-+      await pg.waitForFunction(() => document.getElementById('plate').getAnimations().length === 0);
-+      eq(await board(pg), SOLVED, '(b) board after the turn');
-+    });
-+    say('(b) normal motion: a click on tile 7 during the turn did nothing');
-+    // (c) image 3x3.
-+    await newImageUI(page, 3, 3, 'landscape.png');
-+    await cropDoneUI(page);
-+    const lab = await imgBoard(page);
-+    const i5 = await centreOf(page, '#board .tile[data-index="5"]'), i7 = await centreOf(page, '#board .tile[data-index="7"]');
-+    await flipUI(page);
-+    for (const c of [i5, i7]) {
-+      ok(await page.evaluate(([x, y]) => !!document.elementFromPoint(x, y).closest('#back'), [c.x, c.y]), '(c) the back is not what lies over the front tile');
-+      await page.mouse.click(c.x, c.y);
-+    }
-+    eq(await movesOf(page), 0, '(c) moves');
-+    eq(await imgBoard(page), lab, '(c) image labels');
-+    say('(c) image: clicks over the front tiles ignored, labels unchanged');
-+  });
-+
-+  // back-numbers: AC2, AC6. The back of a number puzzle is the solved grid at every size, phone and desktop.
-+  await run('back-numbers', async ({ page, dir, say }) => {
-+    await reduce(page);
-+    const sweep = async (pg, w, h, sizes, tagp) => {
-+      await pg.setViewportSize({ width: w, height: h });
-+      for (const [r, c] of sizes) {
-+        await setSizeUI(pg, r, c);
-+        await flipUI(pg);
-+        const g = await backGeom(pg);
-+        const tag = `${tagp}${w}x${h} ${r}x${c}`;
-+        ok(g.showsGrid && !g.showsPicture, tag + ': grid not shown or picture shown');
-+        eq(g.cells, solvedBoard(r * c), tag + ' cells');
-+        eq(g.empties, 1, tag + ' empty cells');
-+        ok(g.emptyLast, tag + ': the empty cell is not last');
-+        eq(g.capText, `Shuffle ${r}${TIMES}${c}`, tag + ' caption');
-+        expectBackLayout(g, r, c, tag);
-+        if (BACK_SHOTS.has(`${r}x${c}`)) await shot(pg, dir, `${r}x${c}-${w}.png`);
-+        await flipUI(pg);
-+      }
-+      say(`${tagp}${w}x${h}: ${sizes.length} sizes, grid, caption and layout hold`);
-+    };
-+    await sweep(page, 360, 740, pairs(3, 10), 'file ');
-+    await sweep(page, 1280, 800, pairs(3, 10), 'file ');
-+    need();
-+    await withPage(S['s-flip'].origin + '/', async (pg) => {
-+      await reduce(pg);
-+      await ready(pg);
-+      eq(await optionsOf(pg), { rows: seq(3, 12), cols: seq(3, 12) }, 's-flip options');
-+      await sweep(pg, 360, 740, pairs(3, 12), 'http ');
-+      await sweep(pg, 1280, 800, [[12, 12], [3, 12], [12, 3], [4, 12]], 'http ');
-+    });
-+  });
-+
-+  // back-image: AC2, owner 5. The back of an image puzzle is the whole cropped picture in greyscale, with no seams and no missing piece.
-+  await run('back-image', async ({ page, dir, say }) => {
-+    await reduce(page);
-+    const imageCase = async (pg, fixName, r, c, zoom) => {
-+      const fx = FIX[fixName];
-+      const tag = `${fixName.replace('.png', '')} ${r}x${c}${zoom !== 1 ? ' zoom ' + zoom : ''}`;
-+      await newImageUI(pg, r, c, fixName);
-+      if (zoom !== 1) await setZoom(pg, zoom);
-+      await cropDoneUI(pg);
-+      await flipUI(pg);
-+      const o = cropOracle(fx.W, fx.H, r, c, zoom, fx.W / 2, fx.H / 2);
-+      await expectBackImage(pg, fx, o, r, c, tag, say);
-+      await shot(pg, dir, `${fixName.replace('.png', '')}-${r}x${c}${zoom !== 1 ? 'z' + zoom : ''}-1280.png`);
-+      await flipUI(pg);
-+    };
-+    for (const [r, c] of [[3, 3], [4, 6], [6, 3], [10, 10], [3, 10], [10, 3]]) await imageCase(page, 'landscape.png', r, c, 1);
-+    for (const [r, c] of [[3, 3], [10, 3]]) await imageCase(page, 'portrait.png', r, c, 1);
-+    await imageCase(page, 'landscape.png', 4, 4, 2);
-+    need();
-+    await withPage(S['s-flip'].origin + '/', async (pg) => {
-+      await reduce(pg);
-+      await ready(pg);
-+      for (const [r, c] of [[12, 12], [3, 12], [12, 3]]) await imageCase(pg, 'landscape.png', r, c, 1);
-+    });
-+    await withPage(PAGE_URL, async (pg) => {
-+      await reduce(pg);
-+      const fx = FIX['landscape.png'];
-+      await newImageUI(pg, 3, 3, 'landscape.png');
-+      await cropDoneUI(pg);
-+      await flipUI(pg);
-+      await expectBackImage(pg, fx, cropOracle(fx.W, fx.H, 3, 3, 1, fx.W / 2, fx.H / 2), 3, 3, 'dpr2 landscape 3x3', say, 2);
-+    }, { deviceScaleFactor: 2 });
-+  });
-+
-+  // back-caption: AC2. The caption is the preset name, the own file's name without extension, or Shuffle R x C.
-+  await run('back-caption', async ({ page, dir, say }) => {
-+    need();
-+    await reduce(page);
-+    const land = FIX['landscape.png'];
-+    const NAME_L = 'Grad – Landscape ’1’';
-+    // (a) preset from root A.
-+    await newPresetUI(page, 3, 3, NAME_L);
-+    await cropDoneUI(page);
-+    await flipUI(page);
-+    eq((await backGeom(page)).capText, NAME_L, '(a) caption');
-+    await expectBackImage(page, land, cropOracle(land.W, land.H, 3, 3, 1, 300, 200), 3, 3, '(a) preset', say);
-+    await flipUI(page);
-+    // (b) a real preset, taken from the dialog.
-+    await page.goto(S.real.origin + '/');
-+    await ready(page);
-+    await page.click('#new');
-+    await presetRowVisible(page);
-+    const first = (await presetOptions(page))[0];
-+    ok(first, '(b) no preset in the dialog');
-+    await page.selectOption('#rows', '4');
-+    await page.selectOption('#cols', '4');
-+    await page.selectOption('#preset', { label: first.text });
-+    await page.click('#new-start');
-+    await page.waitForSelector('#crop-dialog[open]');
-+    await cropDoneUI(page);
-+    await flipUI(page);
-+    eq((await backGeom(page)).capText, first.text, '(b) caption');
-+    ok(realFiles.map(stemOf).includes(first.text), `(b) "${first.text}" is not the stem of a file in images/`);
-+    await shot(page, dir, 'real-preset.png');
-+    say(`(b) real preset "${first.text}" at 4x4: caption is its listed name, a stem of images/`);
-+    // (c) own file, then (d) a re-crop of the current image.
-+    await page.goto(PAGE_URL);
-+    await newImageUI(page, 3, 3, 'landscape.png');
-+    await cropDoneUI(page);
-+    await flipUI(page);
-+    eq((await backGeom(page)).capText, 'landscape', '(c) own file caption');
-+    await flipUI(page);
-+    await page.click('#new');
-+    await page.selectOption('#rows', '3');
-+    await page.selectOption('#cols', '4');
-+    await page.click('#new-start');
-+    await page.waitForSelector('#crop-dialog[open]');
-+    await cropDoneUI(page);
-+    await flipUI(page);
-+    eq((await backGeom(page)).capText, 'landscape', '(d) caption after a re-crop');
-+    await expectBackImage(page, land, cropOracle(land.W, land.H, 3, 4, 1, 300, 200), 3, 4, '(d) re-crop 3x4', say);
-+    await flipUI(page);
-+    await ownFileUI(page, 3, 3, '.png');
-+    await flipUI(page);
-+    eq((await backGeom(page)).capText, 'Your picture', '(c) empty-stem caption');
-+    await flipUI(page);
-+    say('(c) own file landscape.png -> "landscape"; ".png" -> "Your picture"; (d) re-crop 3x4 keeps "landscape" and shows the 3x4 crop');
-+    // (e) numbers after an image.
-+    await setSizeUI(page, 5, 6);
-+    await flipUI(page);
-+    const ge = await backGeom(page);
-+    eq(ge.capText, `Shuffle 5${TIMES}6`, '(e) caption');
-+    ok(ge.showsGrid && !ge.showsPicture, '(e) grid not shown');
-+    await flipUI(page);
-+    say('(e) image then numbers 5x6: caption "Shuffle 5×6", grid shown');
-+    // (f) long names at 360x740 over s-flip.
-+    await withPage(S['s-flip'].origin + '/', async (pg) => {
-+      await pg.setViewportSize({ width: 360, height: 740 });
-+      await reduce(pg);
-+      await ready(pg);
-+      const back = async (name, tag) => { await ownFileUI(pg, 3, 12, name); await flipUI(pg); const g = await backGeom(pg); expectBackLayout(g, 3, 12, tag); await flipUI(pg); return g; };
-+      const gj = await back('Jacques-Louis David - Napoleon Crossing the Alps.png', '(f) Jacques-Louis');
-+      eq(gj.capText, 'Jacques-Louis David - Napoleon Crossing the Alps', '(f) long caption');
-+      const gs = await back('landscape.png', '(f) short');
-+      const long = 'A'.repeat(236);
-+      const gl = await back(long + '.png', '(f) 240 characters');
-+      eq(gl.capText, long, '(f) 240-character caption text');
-+      ok(gl.caption.h <= 2 * gs.caption.h + 1, `(f) long caption ${gl.caption.h}px tall, more than two lines of ${gs.caption.h}px`);
-+      ok(gl.panel.w >= 0.8 * gs.panel.w, `(f) panel shrank from ${gs.panel.w} to ${gl.panel.w}`);
-+      await flipUI(pg);
-+      await shot(pg, dir, 'long-name-360.png');
-+      say(`(f) 3x12 at 360: Jacques-Louis caption ${gj.caption.h}px tall inside the back; 240 characters ${gl.caption.h}px (one line ${gs.caption.h}px), panel ${gl.panel.w} against ${gs.panel.w}`);
-+    });
-+    // (g) race: the Picture select changes while the preset is still loading.
-+    await page.goto(S.a.origin + '/');
-+    await reduce(page);
-+    let held = false, release;
-+    const gate = new Promise((res) => { release = res; });
-+    await page.route(/Grad/, async (route) => { held = true; await gate; await route.continue(); });
-+    await page.click('#new');
-+    await presetRowVisible(page);
-+    await page.selectOption('#rows', '3');
-+    await page.selectOption('#cols', '3');
-+    await page.selectOption('#preset', { label: NAME_L });
-+    await page.click('#new-start');
-+    for (let k = 0; k < 100 && !held; k++) await sleep(50);
-+    ok(held, '(g) the preset request was never held');
-+    await page.selectOption('#preset', { label: 'portrait' });
-+    ok(!(await isOpen(page, 'crop-dialog')), '(g) the crop dialog opened before the release');
-+    release();
-+    await page.waitForSelector('#crop-dialog[open]');
-+    await cropDoneUI(page);
-+    await page.unroute(/Grad/);
-+    await flipUI(page);
-+    eq((await backGeom(page)).capText, NAME_L, '(g) caption after the select changed');
-+    say('(g) the Picture select changed while the preset loaded: caption is still the preset that was started');
-+  }, { url: U(S.a) });
-+
-+  // flip-motion: AC5. A 0.6s rotation, instant under reduced motion.
-+  await run('flip-motion', async ({ page, dir, say }) => {
-+    const m11 = () => page.evaluate(() => new DOMMatrix(getComputedStyle(document.getElementById('plate')).transform).m11);
-+    // The click and the first reading are in one page task, so a slow machine cannot let the transition finish first.
-+    const info = await page.evaluate(() => {
-+      const plate = document.getElementById('plate');
-+      document.getElementById('flip').click();
-+      const a = plate.getAnimations();
-+      const out = { n: a.length, kinds: a.map((x) => x.constructor.name), props: a.map((x) => x.transitionProperty), dur: a.map((x) => x.effect.getComputedTiming().duration), state: a.map((x) => x.playState) };
-+      a.forEach((x) => { x.pause(); x.currentTime = 200; });
-+      return out;
-+    });
-+    eq(info, { n: 1, kinds: ['CSSTransition'], props: ['transform'], dur: [600], state: ['running'] }, 'the flip animation');
-+    const mid = await m11();
-+    ok(mid > -0.95 && mid < 0.95 && Math.abs(mid) > 0.05, `m11 ${mid} at 200ms is not partway through the rotation`);
-+    await shot(page, dir, 'mid-flip.png');
-+    await page.evaluate(() => document.getElementById('plate').getAnimations().forEach((x) => x.play()));
-+    await page.waitForFunction(() => document.getElementById('plate').getAnimations().length === 0);
-+    const end = await m11();
-+    ok(Math.abs(end + 1) < 1e-3, `m11 ${end} after the flip, expected -1`);
-+    const g = await backGeom(page);
-+    const s = await backShot(page, g);
-+    ok(s.bright.right > 50, `right band has ${s.bright.right} bright pixels, the maker's text is not showing`);
-+    eq(s.nonGrey, 0, 'non-grey pixels in the panel of the rotated plate');
-+    await flipUI(page);
-+    const back1 = await m11();
-+    ok(Math.abs(back1 - 1) < 1e-3, `m11 ${back1} after flipping back, expected 1`);
-+    say(`one CSSTransition on transform, 600ms; m11 ${mid.toFixed(3)} at 300ms, ${end.toFixed(4)} at the end, ${back1.toFixed(4)} flipped back; right band ${s.bright.right} bright, 0 non-grey in the panel`);
-+    await withPage(PAGE_URL, async (pg) => {
-+      await pg.click('#flip');
-+      const a = await pg.evaluate(() => ({ n: document.getElementById('plate').getAnimations().length, m: new DOMMatrix(getComputedStyle(document.getElementById('plate')).transform).m11 }));
-+      eq(a.n, 0, 'reduced motion: animations after the flip');
-+      ok(Math.abs(a.m + 1) < 1e-3, `reduced motion: m11 ${a.m} after the flip, expected -1`);
-+      await pg.click('#flip');
-+      const b = await pg.evaluate(() => ({ n: document.getElementById('plate').getAnimations().length, m: new DOMMatrix(getComputedStyle(document.getElementById('plate')).transform).m11 }));
-+      eq(b.n, 0, 'reduced motion: animations after flipping back');
-+      ok(Math.abs(b.m - 1) < 1e-3, `reduced motion: m11 ${b.m} after flipping back, expected 1`);
-+    }, { reducedMotion: 'reduce' });
-+    say('reduced motion: no animation, m11 -1 then 1 at once');
-+  }, { video: true });
-+
-+  // back-look: AC3. The back is a black plate printed in white, with maker's text up the right edge, and the picture area is pure grey.
-+  await run('back-look', async ({ page, dir, say }) => {
-+    await reduce(page);
-+    for (const [w, h] of VIEWS) {
-+      await page.setViewportSize({ width: w, height: h });
-+      const kinds = [...[[3, 3], [6, 6], [10, 10], [3, 10], [10, 3]].map(([r, c]) => ({ kind: 'numbers', r, c })), { kind: 'image', r: 3, c: 3 }];
-+      for (const k of kinds) {
-+        if (k.kind === 'numbers') await setSizeUI(page, k.r, k.c); else { await newImageUI(page, k.r, k.c, 'landscape.png'); await cropDoneUI(page); }
-+        await flipUI(page);
-+        const tag = `${k.kind} ${k.r}x${k.c} at ${w}x${h}`;
-+        const bC = await colours(page, '#back');
-+        nonVacuous(bC, tag + ' #back', say);
-+        ok(bC.every((x) => maxc(x) <= 48), tag + ': back not black');
-+        const rad = await style(page, '#back', 'borderTopLeftRadius');
-+        eq(rad, await style(page, '.frame', 'borderTopLeftRadius'), tag + ' back radius against frame');
-+        ok(parseFloat(rad) >= 8, tag + ': back radius < 8px');
-+        ok((await style(page, '#back', 'boxShadow')).includes('inset'), tag + ': back has no inset highlight');
-+        ok(rgbOf(await style(page, '#back-caption', 'color')).every((v) => v >= 230), tag + ': caption colour below 230');
-+        ok(parseFloat(await style(page, '#back-caption', 'fontSize')) < parseFloat(await style(page, 'h1', 'fontSize')), tag + ': caption font not smaller than h1');
-+        eq((await page.textContent('.back-maker')).trim(), 'Made by SHUFFLE', tag + ' maker text');
-+        ok(parseFloat(await style(page, '.back-maker', 'fontSize')) <= 10, tag + ': maker font over 10px');
-+        ok(rgbOf(await style(page, '.back-maker', 'color')).every((v) => v >= 230), tag + ': maker colour below 230');
-+        eq(await style(page, '.back-maker', 'writingMode'), 'vertical-rl', tag + ' maker writing-mode');
-+        const g = await backGeom(page);
-+        ok(g.maker.l >= g.back.r - 32 - 0.5 && g.maker.r <= g.back.r + 0.5, `${tag}: maker box ${JSON.stringify(g.maker)} not in the right 32px of the back`);
-+        ok(g.mark.l >= g.back.l + g.back.w / 2 && g.mark.r <= g.back.r + 0.5 && g.mark.t >= g.back.t - 0.5 && g.mark.b <= g.back.t + g.back.h / 2, `${tag}: mark ${JSON.stringify(g.mark)} not in the top-right quarter`);
-+        const greys = await page.evaluate(() => {
-+          const out = {};
-+          for (const [key, sel] of [['grid', '#back-grid'], ['cell', '.back-cell'], ['empty', '.back-cell.empty']]) {
-+            const e = document.querySelector(sel);
-+            if (!e) { out[key] = null; continue; }
-+            const cs = getComputedStyle(e);
-+            out[key] = [cs.backgroundColor, cs.color];
-+          }
-+          return out;
-+        });
-+        ok(greys.grid, tag + ': #back-grid missing');
-+        if (k.kind === 'numbers') ok(greys.cell && greys.empty, tag + ': back cells missing');
-+        for (const [key, pair] of Object.entries(greys)) {
-+          if (!pair) continue;
-+          for (const cstr of key === 'grid' ? [pair[0]] : pair) { const [R, G, B] = rgbOf(cstr); ok(R === G && G === B, `${tag}: ${key} colour ${cstr} is not pure grey`); }
-+        }
-+        const s = await backShot(page, g);
-+        ok(s.bright.right > 50, `${tag}: right band has ${s.bright.right} bright pixels, the maker's text is not showing`);
-+        ok(s.bright.left < 20, `${tag}: left band has ${s.bright.left} bright pixels, the back looks mirrored`);
-+        eq(s.nonGrey, 0, tag + ' non-grey pixels in the panel');
-+        say(`${tag}: black plate, maker right band ${s.bright.right} bright, left band ${s.bright.left}, panel 0 non-grey`);
-+        await shot(page, dir, `${k.kind}-${k.r}x${k.c}-${w}.png`);
-+        await flipUI(page);
++  // rec-rule: R1. Picking a picture sets Rows and Columns to the I1-A recommendation, and Start plays exactly that grid.
++  await run('rec-rule', async ({ page, say }) => {
++    for (const cur of [[3, 3], [4, 4], [3, 10], [6, 5]]) {
++      for (const [i, name] of REC_FX.entries()) {
++        const fx = FIX[name];
++        const tag = `${name} from ${cur[0]}x${cur[1]}`;
++        await setSizeUI(page, cur[0], cur[1]);
++        await page.click('#new');
++        await pickFile(page, fx);
++        await waitPreview(page, 'ready', fx);
++        const got = await selectsOf(page);
++        eq(got, recOracle(fx.W, fx.H, cur, RANGE_3_10), tag + ' against the oracle');
++        eq(got, REC_ANCHORS[cur.join()][i], tag + ' against the plan anchor');
++        await page.click('#new-start');
++        await page.waitForSelector('#crop-dialog[open]');
++        await cropDoneUI(page);
++        const [r, c] = got;
++        eq(await imgBoard(page), solvedBoard(r * c), tag + ' board');
++        eq(await page.$$eval('#board .tile.image', (e) => e.length), r * c - 1, tag + ' image tiles');
++        const pc = await expectPieces(page, fx, r, c, cropOracle(fx.W, fx.H, r, c, 1, fx.W / 2, fx.H / 2), tag);
++        say(`${tag}: ${r}x${c}, ${pc.count} pieces, worst error ${pc.worst.toFixed(2)}px`);
 +      }
 +    }
 +  });
 +
-+  // flip-resize: AC6. The back follows the viewport while it shows.
-+  await run('flip-resize', async ({ page, say }) => {
-+    await reduce(page);
-+    await setSizeUI(page, 10, 10);
-+    await flipUI(page);
-+    const g0 = await backGeom(page);
-+    expectBackLayout(g0, 10, 10, '1280x800');
-+    await page.setViewportSize({ width: 360, height: 740 });
-+    await page.waitForFunction((w) => document.getElementById('back-grid').getBoundingClientRect().width !== w, g0.panel.w);
-+    const g1 = await backGeom(page);
-+    expectBackLayout(g1, 10, 10, '360x740');
-+    ok(g1.panel.w !== g0.panel.w, 'panel width did not change at 360x740');
-+    await page.setViewportSize({ width: 1280, height: 800 });
-+    await page.waitForFunction((w) => document.getElementById('back-grid').getBoundingClientRect().width !== w, g1.panel.w);
-+    expectBackLayout(await backGeom(page), 10, 10, 'back at 1280x800');
-+    say(`10x10 panel ${g0.panel.w}px at 1280, ${g1.panel.w}px at 360, layout holds at each`);
-+  });
-+
-+  // flip-late-settings: AC1, I7. Settings that arrive late move the board; the back follows.
-+  if (cn) {
++  // rec-range: R1. The recommendation stays inside the offered range, including a late settings.json.
++  await run('rec-range', async ({ page, say }) => {
++    need();
++    S['s-rec'] = await serve(settingsRoot('s-rec', S_REC), settingsProbe(S_REC));
++    const range = { rows: seq(4, 8), cols: seq(3, 6) };
++    const want = { 'landscape.png': [4, 6], 'portrait.png': [6, 4], 'pano.png': [4, 6], 'square.png': [4, 4], 'wide4x3.png': [4, 5] };
++    await withPage(U(S['s-rec']), async (pg) => {
++      await ready(pg);
++      eq(await board(pg), solvedBoard(12), '(a) game after the settings arrive');
++      for (const name of REC_FX) {
++        const fx = FIX[name];
++        await pg.click('#new');
++        await pickFile(pg, fx);
++        await waitPreview(pg, 'ready', fx);
++        const got = await selectsOf(pg);
++        eq(got, recOracle(fx.W, fx.H, [4, 3], range), `(a) ${name} against the oracle`);
++        eq(got, want[name], `(a) ${name} against the plan`);
++        await pg.click('#new-cancel');
++      }
++      say('(a) s-rec rows 4..8, cols 3..6 from 4x3: ' + JSON.stringify(want));
++    });
++    await withPage(U(S['s-flip']), async (pg) => {
++      await ready(pg);
++      await pg.click('#new');
++      const fx = FIX['pano.png'];
++      await pickFile(pg, fx);
++      await waitPreview(pg, 'ready', fx);
++      eq(await selectsOf(pg), [3, 12], '(b) pano over 3..12');
++      say('(b) s-flip 3..12: pano -> 3,12');
++    });
 +    cn.count = 0;
 +    cn.listing = () => ({ body: listingPage([]) });
-+    cn.settings = () => ({ delay: 1500, body: '{"grid":{"rows":{"min":4,"max":8}}}' });
-+  }
-+  await run('flip-late-settings', async ({ page, dir, say }) => {
-+    need();
-+    await reduce(page);
++    cn.settings = () => ({ delay: 2500, body: '{"grid":{"rows":{"min":4,"max":8}}}' });
 +    const mark = errors.length;
-+    await flipUI(page);
-+    eq((await backGeom(page)).capText, `Shuffle 3${TIMES}3`, 'caption before the settings arrive');
++    try {
++      await withPage(cn.origin + '/', async (pg) => {
++        await newImageUI(pg, 3, 3);
++        await cropDoneUI(pg);
++        eq(await imgBoard(pg), solvedBoard(9), '(c) image game before the settings arrive');
++        await pg.click('#new');
++        await waitPreview(pg, 'current');
++        ok(!(await previewOf(pg)).hidden, '(c) current picture not shown before the settings arrive');
++        await ready(pg);
++        ok(await isOpen(pg, 'new-dialog'), '(c) New dialog closed by the late settings');
++        eq(await board(pg), solvedBoard(12), '(c) game after the settings arrive');
++        eq(await pg.$$eval('#board canvas', (e) => e.length), 0, '(c) image game survived the settings');
++        const p = await previewOf(pg);
++        ok(p.hidden, '(c) preview still shown');
++        eq(p.state, 'none', '(c) data-state');
++        say('(c) late settings with an image game: numbers 4x3, preview hidden, data-state none');
++      });
++    } finally {
++      cn.settings = null;
++    }
++    eq(errors.slice(mark), [], '(c) console output');
++  }, { url: U(S.real) });
++
++  // rec-real: R1. Every real preset gets the oracle's size from 3x3, and the plan's anchors where its natural size is the plan's.
++  await run('rec-real', async ({ page, dir, say }) => {
++    need();
 +    await ready(page);
-+    const g = await backGeom(page);
-+    eq(g.capText, `Shuffle 4${TIMES}3`, 'caption after the settings arrive');
-+    eq(g.cells, solvedBoard(12), 'back cells after the settings arrive');
-+    expectBackLayout(g, 4, 3, 'after arrival');
-+    eq(await board(page), solvedBoard(12), 'board after arrival');
-+    await gridOf(page, 4, 3, 'board 4x3');
-+    await shot(page, dir, 'back-after-arrival.png');
-+    await flipUI(page);
-+    eq(await pressedOf(page), 'false', 'aria-pressed after flipping back');
-+    ok(!(await page.$eval('#frame', (e) => e.inert)), 'frame inert after flipping back');
-+    eq(errors.slice(mark), [], 'console output');
-+    say('flipped before the delayed settings arrived: back "Shuffle 3×3", then "Shuffle 4×3" with 12 cells; flipping back works');
-+  }, { url: cn ? cn.origin + '/' : undefined });
-+  if (cn) cn.settings = null;
++    await page.click('#new');
++    await presetRowVisible(page);
++    const opts = await presetOptions(page);
++    await page.click('#new-cancel');
++    ok(opts.length >= 1, 'no presets listed');
++    let shots = 0;
++    for (const o of opts) {
++      await page.click('#new');
++      await presetRowVisible(page);
++      await page.selectOption('#preset', { label: o.text });
++      await waitPreview(page, 'ready');
++      const nat = await page.evaluate(async (u) => { const i = new Image(); i.src = u; await i.decode(); return [i.naturalWidth, i.naturalHeight]; }, o.value);
++      const got = await selectsOf(page);
++      eq(got, recOracle(nat[0], nat[1], [3, 3], RANGE_3_10), `${o.text} (${nat[0]}x${nat[1]}) against the oracle`);
++      const plan = REC_REAL.find((x) => o.text.includes(x[0]));
++      if (plan && plan[1] === nat[0] && plan[2] === nat[1]) eq(got, plan[3], `${o.text} against the plan anchor`);
++      else say(`${o.text}: natural size ${nat} is not the plan's ${plan ? plan.slice(1, 3) : 'unlisted'}; the plan anchor is not applied`);
++      if (shots++ < 2) await shot(page, dir, o.text.replace(/[^A-Za-z0-9]+/g, '-') + '.png');
++      say(`${o.text}: ${nat[0]}x${nat[1]} -> ${got[0]}x${got[1]}`);
++      await page.click('#new-cancel');
++    }
++  }, { url: U(S.real) });
++
++  // rec-sized: I2. The player's choice wins: once Rows or Columns changed in this opening, a picture never moves them.
++  await run('rec-sized', async ({ page, say }) => {
++    need();
++    const land = FIX['landscape.png'], port = FIX['portrait.png'], sq = FIX['square.png'];
++    await page.click('#new');
++    await page.selectOption('#rows', '3');
++    await page.selectOption('#cols', '3');
++    await pickFile(page, land);
++    await waitPreview(page, 'ready', land);
++    eq(await selectsOf(page), [3, 3], '(a) selects after choosing the same values and a picture');
++    await page.click('#new-start');
++    await page.waitForSelector('#crop-dialog[open]');
++    await cropDoneUI(page);
++    eq(await imgBoard(page), solvedBoard(9), '(a) board');
++    say('(a) 3,3 chosen then landscape: stays 3x3 and Start gives 3x3');
++    await page.click('#new');
++    await pickFile(page, land);
++    await waitPreview(page, 'ready', land);
++    eq(await selectsOf(page), [4, 6], '(b) landscape recommendation');
++    await page.selectOption('#cols', '4');
++    await pickFile(page, port);
++    await waitPreview(page, 'ready', port);
++    eq(await selectsOf(page), [4, 4], '(b) selects after choosing Columns and then portrait');
++    await page.click('#new-cancel');
++    say('(b) landscape -> 4,6; Columns 4 then portrait: 4,4');
++    await page.click('#new');
++    await pickFile(page, land);
++    await waitPreview(page, 'ready', land);
++    eq(await selectsOf(page), [4, 6], '(c) landscape recommendation');
++    await pickFile(page, sq);
++    await waitPreview(page, 'ready', sq);
++    eq(await selectsOf(page), [3, 3], '(c) square re-recommended from the current 3x3 game');
++    await page.click('#new-cancel');
++    say('(c) landscape then square without touching the selects: 3,3, no drift');
++    await withPage(U(S.a), async (pg) => {
++      await pg.click('#new');
++      await presetRowVisible(pg);
++      await pg.selectOption('#preset', { label: 'portrait' });
++      await waitPreview(pg, 'ready', port);
++      eq(await selectsOf(pg), [6, 4], '(d) preset portrait');
++      await pg.click('#new-cancel');
++      await pg.click('#new');
++      await presetRowVisible(pg);
++      eq(await selectsOf(pg), [3, 3], '(d) selects after reopening');
++      const p = await previewOf(pg);
++      ok(p.hidden, '(d) preview shown on reopening');
++      eq(p.state, 'none', '(d) data-state on reopening');
++      say('(d) preset portrait -> 6,4; Cancel and reopen: 3,3 and no preview');
++    });
++  });
++
++  // rec-follow: R2, I3. The drawing follows Rows and Columns; Numbers hides it; the current picture shows without a recommendation.
++  await run('rec-follow', async ({ page, dir, say }) => {
++    const land = FIX['landscape.png'];
++    await page.click('#new');
++    await pickFile(page, land);
++    await waitPreview(page, 'ready', land);
++    const p0 = await previewOf(page);
++    for (const [r, c] of [[3, 3], [3, 5], [5, 3], [10, 10], [3, 10]]) {
++      await page.selectOption('#rows', String(r));
++      await page.selectOption('#cols', String(c));
++      const { p } = await expectPreview(page, land, r, c, 1, `(a) ${r}x${c}`, say);
++      eq([p.bw, p.bh], [p0.bw, p0.bh], `(a) ${r}x${c} backing size`);
++    }
++    await shot(page, dir, 'follow-3x10.png');
++    await page.check('#kind-numbers');
++    ok((await previewOf(page)).hidden, '(b) preview shown with Numbers');
++    await page.check('#kind-image');
++    ok(!(await previewOf(page)).hidden, '(b) preview hidden with Image');
++    await expectPreview(page, land, 3, 10, 1, '(b) back to Image', say);
++    await page.click('#new-cancel');
++    await newImageUI(page, 4, 5);
++    await cropDoneUI(page);
++    await page.click('#new');
++    await waitPreview(page, 'current');
++    const pc = await previewOf(page);
++    ok(!pc.hidden, '(c) current picture not shown');
++    ok(Math.abs(pc.cssH - pc.cssW * land.H / land.W) <= 1, '(c) current picture shape');
++    eq(await selectsOf(page), [4, 5], '(c) selects with the current picture');
++    await page.click('#new-cancel');
++    await setSizeUI(page, 3, 3);
++    await page.click('#new');
++    const pn = await previewOf(page);
++    ok(pn.hidden, '(c) preview shown for a numbers game');
++    eq(pn.state, 'none', '(c) data-state for a numbers game');
++    say('(b) Numbers hides, Image shows; (c) current picture shown at 4,5 with no recommendation, hidden for a numbers game');
++  });
++
++  // rec-preview: R3. The picture fills the grid (cover), the overflow is dimmed, and the box is fitted.
++  await run('rec-preview', async ({ page, dir, say }) => {
++    for (const [name, combos] of [['landscape.png', [[3, 3], [3, 5], [5, 3], [3, 10], [4, 6]]], ['portrait.png', [[3, 3], [5, 3]]], ['pano.png', [[3, 10]]]]) {
++      const fx = FIX[name];
++      await page.click('#new');
++      await pickFile(page, fx);
++      await waitPreview(page, 'ready', fx);
++      for (const [r, c] of combos) {
++        await page.selectOption('#rows', String(r));
++        await page.selectOption('#cols', String(c));
++        await expectPreview(page, fx, r, c, 1, `${name} ${r}x${c}`, say);
++        await shot(page, dir, `${name.replace('.png', '')}-${r}x${c}.png`);
++      }
++      await page.click('#new-cancel');
++    }
++    const g = await newPage({ deviceScaleFactor: 2 });
++    try {
++      const fx = FIX['landscape.png'];
++      await g.page.click('#new');
++      await pickFile(g.page, fx);
++      await waitPreview(g.page, 'ready', fx);
++      await g.page.selectOption('#rows', '3');
++      await g.page.selectOption('#cols', '5');
++      await expectPreview(g.page, fx, 3, 5, 2, 'dpr 2 landscape 3x5', say);
++      await shot(g.page, dir, 'landscape-3x5-dpr2.png');
++    } finally {
++      await g.ctx.close();
++    }
++  });
++
++  // rec-crop-match: R3. The crop dialog opens on exactly the area the preview lit.
++  await run('rec-crop-match', async ({ page, say }) => {
++    const land = FIX['landscape.png'], port = FIX['portrait.png'];
++    await page.click('#new');
++    await pickFile(page, land);
++    await waitPreview(page, 'ready', land);
++    eq(await selectsOf(page), [4, 6], 'landscape selects');
++    await page.click('#new-start');
++    await page.waitForSelector('#crop-dialog[open]');
++    await expectCrop(page, land, 4, 6, 1, 300, 200, 'landscape 4x6', say);
++    await page.click('#new');
++    await pickFile(page, port);
++    await waitPreview(page, 'ready', port);
++    eq(await selectsOf(page), [6, 4], 'portrait selects');
++    await page.click('#new-start');
++    await page.waitForSelector('#crop-dialog[open]');
++    await expectCrop(page, port, 6, 4, 1, 200, 300, 'portrait 6x4', say);
++  });
++
++  // rec-start: I4. Start uses what is shown; a recommendation never lands after Start was pressed.
++  await run('rec-start', async ({ page, say }) => {
++    const land = FIX['landscape.png'];
++    await page.evaluate(() => {
++      window.__g = { dec: [], bmp: [] };
++      const realDecode = HTMLImageElement.prototype.decode;
++      HTMLImageElement.prototype.decode = function () { return new Promise((res) => window.__g.dec.push(res)).then(() => realDecode.call(this)); };
++      const realBmp = window.createImageBitmap.bind(window);
++      window.createImageBitmap = (...a) => new Promise((res) => window.__g.bmp.push(res)).then(() => realBmp(...a));
++    });
++    const gate = (k) => page.waitForFunction(([k, n]) => window.__g[k].length === n, [k, 1]);
++    const release = (k) => page.evaluate((k) => { const r = window.__g[k].shift(); if (r) r(); }, k);
++    await page.click('#new');
++    await pickFile(page, land);
++    await waitPreview(page, 'loading');
++    await gate('dec');
++    await page.click('#new-start');
++    await gate('bmp');
++    eq(await selectsOf(page), [3, 3], '1. selects while the preview loads');
++    await release('dec');
++    await waitPreview(page, 'ready');
++    ok(await isOpen(page, 'new-dialog'), '2. New dialog closed while Start is pending');
++    eq(await selectsOf(page), [3, 3], '2. selects after the preview loaded');
++    await release('bmp');
++    await page.waitForSelector('#crop-dialog[open]');
++    await cropDoneUI(page);
++    eq(await imgBoard(page), solvedBoard(9), '3. board');
++    await page.click('#new');
++    eq(await selectsOf(page), [3, 3], '4. selects on reopening');
++    say('Start pressed while the preview loaded: selects stayed 3,3 before and after it loaded, the game is 3x3');
++  });
++
++  // rec-race: I3, I6. A stale preview load never acts, and a pending pick never shows the old picture.
++  await run('rec-race', async ({ say }) => {
++    need();
++    const land = FIX['landscape.png'], port = FIX['portrait.png'];
++    const bytes = { '/images/a.png': land.buffer, '/images/b.png': port.buffer };
++    const hold = { held: true, waiting: [] };
++    cn.listing = () => ({ body: listingPage(['a.png', 'b.png']) });
++    cn.extra = (req, res, p) => {
++      if (!bytes[p]) return false;
++      const send = () => { res.writeHead(200, { 'Content-Type': 'image/png' }); res.end(bytes[p]); };
++      if (p === '/images/a.png' && hold.held) hold.waiting.push(send); else send();
++      return true;
++    };
++    const holdA = () => { hold.held = true; };
++    const releaseA = () => { hold.held = false; hold.waiting.splice(0).forEach((f) => f()); };
++    const askedA = () => cn.requests.filter((p) => p === '/images/a.png').length;
++    const open = async (pg) => { await pg.click('#new'); await presetRowVisible(pg); };
++    const pickA = async (pg) => { const n = askedA(); await pg.selectOption('#preset', { label: 'a' }); await until(() => askedA() > n, 'the request for a'); };
++    try {
++      await withPage(cn.origin + '/', async (pg) => {
++        holdA();
++        await open(pg);
++        await pickA(pg);
++        eq((await previewOf(pg)).state, 'loading', '(a) state while a is held');
++        ok((await previewOf(pg)).hidden, '(a) preview shown while a is held');
++        await pg.selectOption('#preset', { label: 'b' });
++        await waitPreview(pg, 'ready', port);
++        eq(await selectsOf(pg), [6, 4], '(a) selects follow b');
++        releaseA();
++        await sleep(500);
++        eq(await selectsOf(pg), [6, 4], '(a) selects after a arrived');
++        const p = await previewOf(pg);
++        eq(p.state, 'ready', '(a) state after a arrived');
++        ok(p.cssH > p.cssW, '(a) preview is not b (portrait)');
++        const cs = await previewPx(pg, [[0, 0], [p.bw - 1, 0], [0, p.bh - 1], [p.bw - 1, p.bh - 1]]);
++        [[0, 0], [255, 0], [0, 255], [255, 255]].forEach(([r, g], i) => { ok(Math.abs(cs[i][0] - r) <= 8 && Math.abs(cs[i][1] - g) <= 8 && Math.abs(cs[i][2] - 128) <= 8, `(a) corner ${i} is ${cs[i].slice(0, 3)}, portrait gradient says ${r},${g},128`); });
++        say('(a) a then b: loading + hidden while a was held; after a arrived the selects stay 6,4 and the preview is b');
++      });
++      const mark = errors.length;
++      await withPage(cn.origin + '/', async (pg) => {
++        holdA();
++        await open(pg);
++        await pickA(pg);
++        await pg.keyboard.press('Escape');
++        releaseA();
++        await sleep(500);
++        ok(!(await isOpen(pg, 'new-dialog')), '(b) New dialog opened by the late preview');
++        ok(!(await isOpen(pg, 'crop-dialog')), '(b) crop dialog opened by the late preview');
++        eq(await board(pg), SOLVED, '(b) board');
++        say('(b) a then Escape, a arrives: nothing opens or changes');
++      });
++      eq(errors.slice(mark), [], '(b) console output');
++      await withPage(cn.origin + '/', async (pg) => {
++        holdA();
++        await open(pg);
++        await pickA(pg);
++        await pg.click('#new-cancel');
++        await open(pg);
++        await pg.selectOption('#preset', { label: 'b' });
++        await waitPreview(pg, 'ready', port);
++        releaseA();
++        await sleep(500);
++        eq(await selectsOf(pg), [6, 4], '(c) selects after the old a arrived');
++        eq((await previewOf(pg)).state, 'ready', '(c) state');
++        ok((await previewOf(pg)).cssH > (await previewOf(pg)).cssW, '(c) preview is not b (portrait)');
++        say('(c) a, Cancel, reopen, b, then a arrives: the selects follow b');
++      });
++      await withPage(cn.origin + '/', async (pg) => {
++        holdA();
++        await newImageUI(pg, 3, 3);
++        await cropDoneUI(pg);
++        await open(pg);
++        await waitPreview(pg, 'current');
++        await pickA(pg);
++        const p = await previewOf(pg);
++        eq(p.state, 'loading', '(d) state while a is held over an image game');
++        ok(p.hidden, '(d) the old picture is shown in place of the pending pick');
++        releaseA();
++        await waitPreview(pg, 'ready', land);
++        say('(d) from an image game: the pending pick hides the current picture; after release it shows a');
++      });
++    } finally {
++      releaseA();
++      cn.extra = null;
++    }
++  });
++
++  // rec-reopen: I3, D8. Reopening with no new pick keeps the game's size, loads no preview, and asks for nothing that was deleted.
++  await run('rec-reopen', async ({ page, say }) => {
++    need();
++    const fresh = path.join(tmpRoot, 'A', 'images', 'Fresh2.png');
++    try {
++      await newPresetUI(page, 5, 3, 'portrait');
++      await cropDoneUI(page);
++      const before = S.a.log.filter((e) => e.path.toLowerCase() === '/images/portrait.png').length;
++      ok(before >= 1, 'portrait never requested');
++      await page.click('#new');
++      await presetRowVisible(page);
++      eq(await selectsOf(page), [5, 3], 'selects on reopening');
++      eq(await page.$eval('#preset', (e) => e.value), '', '#preset on reopening');
++      await sleep(400);
++      eq(S.a.log.filter((e) => e.path.toLowerCase() === '/images/portrait.png').length, before, 'requests for portrait across the reopen');
++      await page.click('#new-cancel');
++      say(`portrait requested ${before} times (preview and Start); reopening requested nothing more; selects 5,3, #preset empty`);
++      fs.writeFileSync(fresh, FIX['landscape.png'].buffer);
++      await page.click('#new');
++      await page.waitForFunction(() => [...document.querySelectorAll('#preset option')].some((o) => o.textContent === 'Fresh2'));
++      await page.selectOption('#preset', { label: 'Fresh2' });
++      await waitPreview(page, 'ready');
++      await page.click('#new-start');
++      await page.waitForSelector('#crop-dialog[open]');
++      await cropDoneUI(page);
++      fs.rmSync(fresh);
++      const n0 = S.a.log.length, e0 = errors.length;
++      await page.click('#new');
++      await presetRowVisible(page);
++      await sleep(400);
++      eq(S.a.log.slice(n0).filter((e) => e.path.includes('Fresh2')), [], 'requests for the deleted file after reopening');
++      eq(S.a.log.slice(n0).filter((e) => e.code === 404), [], '404s after reopening');
++      eq(errors.slice(e0), [], 'console output after reopening');
++      say('delete then reopen: no request for the deleted file, no 404, no console output');
++    } finally {
++      fs.rmSync(fresh, { force: true });
++    }
++  }, { url: U(S.a) });
++
++  // rec-redirect: I6. A preset that redirects away is refused for the preview as for Start, and nothing reaches the second origin.
++  await run('rec-redirect', async ({ page, say }) => {
++    need();
++    const cnX = await canned(FIX['landscape.png'].buffer);
++    const cnR = await canned(FIX['landscape.png'].buffer);
++    cnX.extra = (req, res, p) => { if (p !== '/images/x.png') return false; res.writeHead(200, { 'Content-Type': 'image/png' }); res.end(FIX['landscape.png'].buffer); return true; };
++    cnR.listing = () => ({ body: listingPage(['r.png']) });
++    cnR.extra = (req, res, p) => { if (p !== '/images/r.png') return false; res.writeHead(302, { Location: cnX.origin + '/images/x.png' }); res.end(); return true; };
++    expectConsole(cnR.origin + '/images/r.png', 'Failed to load resource: net::ERR_FAILED');
++    expectConsole(cnX.origin + '/images/x.png', 'Failed to load resource: net::ERR_FAILED');
++    await withPage(cnR.origin + '/', async (pg) => {
++      pg.on('console', (m) => say(`redirect case console: ${m.type()} ${m.text()} @ ${m.location().url}`));
++      await pg.click('#new');
++      await presetRowVisible(pg);
++      await pg.selectOption('#preset', { label: 'r' });
++      await waitPreview(pg, 'failed');
++      ok((await previewOf(pg)).hidden, 'preview shown for a redirecting preset');
++      eq(await selectsOf(pg), [3, 3], 'selects after the failed preview');
++      await pg.click('#new-start');
++      await pg.waitForFunction(() => { const e = document.getElementById('new-error'); return !e.hidden && e.textContent.includes('not an image'); });
++      eq((await pg.textContent('#new-error')).trim(), 'That file is not an image.', 'Start text');
++      await sleep(300);
++    });
++    eq(cnX.requests, [], 'requests that reached the second origin');
++    say('redirecting preset: data-state failed, preview hidden, selects unchanged, Start says "That file is not an image.", nothing reached the second origin');
++  });
++
++  // rec-layout: R4. The New dialog with the preview still fits and reads on every view.
++  await run('rec-layout', async ({ page, dir, say }) => {
++    need();
++    const fit = async (pg, tag) => {
++      const m = await pg.evaluate(() => {
++        const d = document.querySelector('#new-dialog');
++        const rc = (e) => { const q = e.getBoundingClientRect(); return { l: q.left, r: q.right, t: q.top, b: q.bottom, w: q.width, h: q.height }; };
++        const n3 = (s) => (s.match(/[\d.]+/g) || []).slice(0, 3).map(Number);
++        const vis = (e) => e.getClientRects().length > 0;
++        const leaves = [...d.querySelectorAll('label, legend, .hint, h2, button')].filter(vis).map((e) => ({ name: e.tagName + (e.id ? '#' + e.id : ''), colour: n3(getComputedStyle(e).color) }));
++        const greens = [d, ...d.querySelectorAll('*')].flatMap((e) => { const cs = getComputedStyle(e); return [['color', cs.color], ['background', cs.backgroundColor]].map(([k, v]) => ({ name: e.tagName + (e.id ? '#' + e.id : '') + ' ' + k, c: n3(v) })); }).filter((x) => x.c.length === 3 && x.c[1] > x.c[0] + 20 && x.c[1] > x.c[2] + 20).map((x) => x.name);
++        return { d: rc(d), pv: rc(document.getElementById('new-preview')), pvHidden: document.getElementById('new-preview').hidden, sw: d.scrollWidth, cw: d.clientWidth, docCw: document.documentElement.clientWidth, ih: window.innerHeight, controls: [...d.querySelectorAll('button, select')].filter(vis).map((e) => ({ name: e.id, box: rc(e) })), leaves, greens };
++      });
++      ok(!m.pvHidden, tag + ': preview hidden');
++      ok(m.d.l >= 0 && m.d.r <= m.docCw && m.d.t >= 0 && m.d.b <= m.ih, `${tag}: dialog box ${JSON.stringify(m.d)} outside the viewport`);
++      ok(m.sw <= m.cw, `${tag}: dialog scrollWidth ${m.sw} > clientWidth ${m.cw}`);
++      ok(m.controls.length >= 2, tag + ': no controls found');
++      for (const k of m.controls) ok(inside(k.box, m.d), `${tag}: ${k.name} outside the dialog`);
++      ok(inside(m.pv, m.d), `${tag}: preview ${JSON.stringify(m.pv)} outside the dialog`);
++      for (const l of m.leaves) ok(l.colour.every((v) => v >= 230), `${tag}: ${l.name} text colour ${l.colour} below 230`);
++      ok(m.leaves.length >= 4, tag + ': too few text leaves checked');
++      eq(m.greens, [], tag + ' green text or background');
++      const bg = await colours(pg, '#new-dialog');
++      nonVacuous(bg, tag + ' dialog background', say);
++      ok(bg.every((x) => maxc(x) <= 48), tag + ': dialog background not dark plastic');
++      say(`${tag}: dialog ${m.d.w.toFixed(0)}x${m.d.h.toFixed(0)}, preview ${m.pv.w.toFixed(0)}x${m.pv.h.toFixed(0)} inside it, ${m.controls.length} controls inside, ${m.leaves.length} text leaves light`);
++    };
++    for (const [w, h] of VIEWS) {
++      await page.setViewportSize({ width: w, height: h });
++      await page.click('#new');
++      await presetRowVisible(page);
++      await page.selectOption('#preset', { index: 1 });
++      await waitPreview(page, 'ready');
++      await fit(page, `${w}x${h} preset`);
++      await shot(page, dir, `new-${w}.png`);
++      await page.click('#new-cancel');
++    }
++    await withPage(PAGE_URL, async (pg) => {
++      for (const name of ['pano.png', 'portrait.png']) {
++        for (const [w, h] of VIEWS) {
++          await pg.setViewportSize({ width: w, height: h });
++          await pg.click('#new');
++          await pickFile(pg, FIX[name]);
++          await waitPreview(pg, 'ready', FIX[name]);
++          await fit(pg, `${w}x${h} ${name}`);
++          await shot(pg, dir, `own-${name.replace('.png', '')}-${w}.png`);
++          await pg.click('#new-cancel');
++        }
++      }
++    });
++  }, { url: U(S.real) });
++
++  // rec-requests: R4, I6. The preview asks for nothing the page did not already: same-origin images/ paths, and in-memory blob: URLs.
++  await run('rec-requests', async ({ say }) => {
++    need();
++    const bad = requests.slice(recMark).filter((u) => !recAllowed(u));
++    eq(bad, [], 'requests outside the allowed set across the rec-* checks');
++    const a = await watched(U(S.a));
++    try {
++      await a.page.click('#new');
++      await presetRowVisible(a.page);
++      const portraitPath = new URL((await presetOptions(a.page)).find((o) => o.text === 'portrait').value).pathname;
++      await a.page.selectOption('#preset', { label: 'portrait' });
++      await waitPreview(a.page, 'ready');
++      await a.page.click('#new-start');
++      await a.page.waitForSelector('#crop-dialog[open]');
++      await a.page.click('#crop-cancel');
++      const images = [...new Set(a.seen.map((u) => new URL(u)).filter((u) => u.pathname.startsWith('/images/')).map((u) => u.pathname))];
++      ok(a.seen.some((u) => new URL(u).pathname === portraitPath), 'no request for the picked preset');
++      eq(images.filter((p) => p !== '/images/' && p !== portraitPath), [], 'other /images/ paths requested');
++      say(`root A: picking portrait and Start requested ${a.seen.filter((u) => new URL(u).pathname === portraitPath).length} times; /images/ paths ${JSON.stringify(images)}`);
++    } finally {
++      await a.ctx.close();
++    }
++    const f = await watched(PAGE_URL);
++    try {
++      await f.page.click('#new');
++      await pickFile(f.page, FIX['landscape.png']);
++      await waitPreview(f.page, 'ready');
++      await f.page.click('#new-start');
++      await f.page.waitForSelector('#crop-dialog[open]');
++      await f.page.click('#crop-cancel');
++      eq(f.seen.filter((u) => u !== PAGE_URL && u !== 'data:,' && !u.startsWith('blob:null/')), [], 'file:// requests other than the page and blob:null/');
++      say('file://: own file made requests ' + JSON.stringify(f.seen.map((u) => u.replace(/[0-9a-f-]{36}/, '<id>'))));
++    } finally {
++      await f.ctx.close();
++    }
++  }, { shoot: false });
 +
    // preset-requests: AC6. The Python servers only ever saw the page and images/.
    await run('preset-requests', async ({ say }) => {
      need();
-@@ -2529,8 +3136,6 @@ async function main() {
-     const bad = [...changed].filter((f) => f !== 'index.html' && f !== 'settings.json' && f !== 'README.md' && !f.startsWith('test-results/') && !(f.startsWith('images/') && !f.slice(7).includes('/') && R1.test(f)));
-     eq(bad, [], 'files outside index.html, settings.json, README.md, test-results/** and images/<image>');
-     ok(changed.has('index.html'), 'index.html not in change set');
--    ok(changed.has('README.md'), 'README.md not in change set');
--    ok(changed.has('settings.json'), 'settings.json not in change set');
-     const tracked = sh('git ls-files images/');
-     ok(tracked.length >= 1, 'no tracked file under images/');
-     eq(tracked.filter((f) => !R1.test(f)), [], 'tracked files under images/ without a recognised extension');
+@@ -3189,6 +3854,7 @@ async function main() {
+     ok(requests.length > 0, 'no requests captured');
+     const allowed = (u) => {
+       if (u === PAGE_URL || u === 'data:,') return true;
++      if (u.startsWith('blob:')) { const inner = u.slice(5); if (inner.startsWith('null/')) return true; try { return driverOrigins.has(new URL(inner).origin); } catch (_) { return false; } }
+       let q;
+       try { q = new URL(u); } catch (_) { return false; }
+       return driverOrigins.has(q.origin) && (q.pathname === '/' || q.pathname === '/index.html' || q.pathname === '/settings.json' || q.pathname.startsWith('/images/'));

@@ -1,0 +1,2 @@
+landscape 4x6: crop sx 0.0 sy 0.0 cw 600.0 ch 400.0; preview error 1.21px; 23 pieces, worst error 1.01px
+portrait 6x4: crop sx 0.0 sy 0.0 cw 400.0 ch 600.0; preview error 1.01px; 23 pieces, worst error 1.01px
