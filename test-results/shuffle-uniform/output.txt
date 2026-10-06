@@ -1,5 +1,1 @@
-<<<<<<< HEAD
-tile 1 counts by cell: 1001 1006 983 966 969 1038 1017 1038 982
-=======
-tile 1 counts by cell: 1057 1025 1017 962 973 972 965 1008 1021
->>>>>>> origin/main
+tile 1 counts by cell: 991 964 1003 1036 1015 1047 937 1008 999

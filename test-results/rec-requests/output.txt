@@ -1,2 +1,2 @@
 root A: picking portrait and Start requested 2 times; /images/ paths ["/images/","/images/portrait.PNG"]
-file://: own file made requests ["file:///C:/Users/fract/Documents/github/Shuffle/.claude/worktrees/18/Shuffle/index.html","blob:null/<id>"]
+file://: own file made requests ["file:///C:/Users/fract/Documents/github/Shuffle/.claude/worktrees/18/Shuffle/Site/index.html","blob:null/<id>"]

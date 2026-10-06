@@ -4090,7 +4090,10 @@ async function main() {
       return r.stdout.split(/\r?\n/).filter(Boolean);
     };
     eq(git(['ls-files', 'index.html', 'settings.json', 'images/']), [], 'tracked app files at the repo root');
-    const before = git(['log', '--format=%H', BASE, '--', 'Site/index.html', 'index.html']);
+    // AC6 is about the history before the move. Once the move commit exists, check only the commits before it: later commits
+    // made on parallel branches to the old root index.html are merged history that `git log --follow` cannot trace by design.
+    const move = git(['log', '--diff-filter=A', '--format=%H', 'HEAD', '--', 'Site/index.html']).pop();
+    const before = move ? git(['log', '--format=%H', move + '^', '--', 'index.html']) : git(['log', '--format=%H', BASE, '--', 'Site/index.html', 'index.html']);
     const follow = new Set(git(['log', '--follow', '--format=%H', '--', 'Site/index.html']));
     ok(before.length >= 1, 'no base history for index.html');
     eq(before.filter((h) => !follow.has(h)), [], 'base commits missing from git log --follow Site/index.html');
