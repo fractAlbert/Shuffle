@@ -1,0 +1,3 @@
+(a) 11x11 save on 3..10: 10x10 numbers, cookie without url, New prefills 10/10, Start gives 10x10
+(a) 12x12 save on 3..10: 10x10 numbers, cookie without url, New prefills 10/10, Start gives 10x10
+(b) 3x3 preset game, then a rows 4..8 server on the same host: numbers 4x3, cookie without url

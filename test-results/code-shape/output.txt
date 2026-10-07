@@ -30,5 +30,8 @@ function recommend: present with comment
 function setPreview: present with comment
 function loadPreview: present with comment
 function drawPreview: present with comment
+function saveGame: present with comment
+function restoreGame: present with comment
+function savedPreset: present with comment
 SIZE: absent
 isSolvable(tiles, cols): present

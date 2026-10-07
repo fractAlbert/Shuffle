@@ -6,7 +6,7 @@ The whole app is a single `Site/index.html` with inline CSS and plain JavaScript
 
 ## Run
 
-From the repo root, run `python -m http.server 8000 --directory Site`, then open http://localhost:8000/. (Or `cd Site` and run `python -m http.server 8000`.)
+From the repo root, run `python -m http.server 8000 --directory Site`, then open http://localhost:8000/. (Or `cd Site` and run `python -m http.server 8000`.) Served this way, your game is saved in a cookie, so reloading the page resumes it; opened directly as a `file://` page it is not saved.
 
 Pictures dropped into `Site/images/` (jpg, jpeg, png, webp, gif, avif) appear in the New dialog the next time it is opened. Opening `Site/index.html` directly in a browser still plays numbers and your own image files, but without the preset pictures.
 

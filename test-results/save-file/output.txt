@@ -1,0 +1,1 @@
+file://: no cookie, the reload starts a fresh solved 3x3

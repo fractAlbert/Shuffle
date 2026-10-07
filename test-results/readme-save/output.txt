@@ -1,0 +1,1 @@
+README says the game is saved in a cookie and that file:// is not saved

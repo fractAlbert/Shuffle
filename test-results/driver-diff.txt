@@ -1,761 +1,570 @@
 diff --git a/test-results/verify.cjs b/test-results/verify.cjs
-index 72796e8..cf9c5c3 100644
+index cf9c5c3..804b800 100644
 --- a/test-results/verify.cjs
 +++ b/test-results/verify.cjs
 @@ -1,4 +1,4 @@
--// Verification driver (test tooling, not app code). See plan section 6 of issues #1, #2, #3, #4, #5, #7, #13, #14, #15, #17 and #20.
-+// Verification driver (test tooling, not app code). See plan section 6 of issues #1, #2, #3, #4, #5, #7, #13, #14, #15, #17, #18 and #20.
+-// Verification driver (test tooling, not app code). See plan section 6 of issues #1, #2, #3, #4, #5, #7, #13, #14, #15, #17, #18 and #20.
++// Verification driver (test tooling, not app code). See plan section 6 of issues #1, #2, #3, #4, #5, #7, #13, #14, #15, #17, #18, #20 and #21.
  const fs = require('fs');
  const os = require('os');
  const path = require('path');
-@@ -305,6 +305,8 @@ async function canned(okBytes) {
-   cs.server = http.createServer((req, res) => {
-     const p = req.url.split('?')[0];
-     cs.requests.push(p);
-+    // #18: cs.extra(req, res, p) may answer a request first (held and redirecting images); it returns true when it did.
-+    if (cs.extra && cs.extra(req, res, p)) return;
-     if (p === '/' || p === '/index.html') { res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' }); res.end(fs.readFileSync(path.join(SITE, 'index.html'))); return; }
-     if (p === '/images/') {
-       const r = cs.listing(++cs.count);
-@@ -556,10 +558,152 @@ async function expectBackImage(page, fx, o, r, c, tag, say, dprWant = 1) {
-   say(`${tag}: canvas ${p.cssW}x${p.cssH} css, ${p.W}x${p.H} store at dpr ${p.dpr}; 0 non-grey; ${p.samples.length} samples, worst luma error ${worst.toFixed(2)}; cut steps ${p.stepX}/${p.stepY}`);
- }
- 
-+// ---- #18 helpers. Expectations come from plan #18 sections 2 (I1-A, I3, I5) and 6, never from the app's code. ----
-+const S_REC = '{"grid":{"rows":{"min":4,"max":8},"columns":{"min":3,"max":6}}}';
-+const REC_FX = ['landscape.png', 'portrait.png', 'pano.png', 'square.png', 'wide4x3.png'];
-+// The plan's literal I1-A anchors per starting game, in REC_FX order (range 3..10).
-+const REC_ANCHORS = {
-+  '3,3': [[4, 6], [6, 4], [3, 10], [3, 3], [3, 4]],
-+  '4,4': [[4, 6], [6, 4], [3, 10], [4, 4], [3, 4]],
-+  '3,10': [[4, 6], [6, 4], [3, 10], [5, 5], [5, 7]],
-+  '6,5': [[4, 6], [6, 4], [3, 10], [5, 5], [5, 7]],
-+};
-+// The plan's real presets from 3x3 (I1-A): name fragment, natural size, expected selects.
-+const REC_REAL = [['Nighthawks', 750, 409, [4, 7]], ['Sleeping Gypsy', 1024, 636, [3, 5]], ['Napoleon', 750, 896, [5, 4]], ['Whistler', 750, 667, [6, 7]], ['Great Wave', 1200, 800, [4, 6]], ['Birth of Venus', 750, 471, [3, 5]]];
-+// In-memory gradient fixtures, made like landscape.png and never written to disk.
-+async function makeExtraFixtures(browser) {
-+  const ctx = await browser.newContext();
-+  const pg = await ctx.newPage();
-+  for (const [name, W, H] of [['pano.png', 1200, 300], ['square.png', 500, 500], ['wide4x3.png', 800, 600]]) {
-+    const b64 = await pg.evaluate(([W, H]) => {
-+      const cv = document.createElement('canvas');
-+      cv.width = W; cv.height = H;
-+      const g = cv.getContext('2d');
-+      const d = g.createImageData(W, H);
-+      for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
-+        const i = 4 * (y * W + x);
-+        d.data[i] = Math.round(255 * x / (W - 1)); d.data[i + 1] = Math.round(255 * y / (H - 1)); d.data[i + 2] = 128; d.data[i + 3] = 255;
-+      }
-+      g.putImageData(d, 0, 0);
-+      return cv.toDataURL('image/png').split(',')[1];
-+    }, [W, H]);
-+    FIX[name] = { name, mimeType: 'image/png', buffer: Buffer.from(b64, 'base64'), W, H };
-+  }
-+  await ctx.close();
-+}
-+// Recommendation oracle (I1-A, from the plan's text): the offered sizes whose shape is within 5% (in ratio) of the closest shape; of those, the tile count nearest the current game's, then fewer tiles, then fewer rows.
-+function recOracle(W, H, cur, range) {
-+  const sizes = [];
-+  for (const r of range.rows) for (const c of range.cols) { const q = (c / r) / (W / H); sizes.push({ r, c, off: Math.max(q, 1 / q) }); }
-+  const best = Math.min(...sizes.map((s) => s.off));
-+  const near = sizes.filter((s) => s.off <= best * Math.exp(0.05) * (1 + 1e-9));
-+  const n0 = cur[0] * cur[1];
-+  near.sort((a, b) => Math.abs(a.r * a.c - n0) - Math.abs(b.r * b.c - n0) || a.r * a.c - b.r * b.c || a.r - b.r);
-+  return [near[0].r, near[0].c];
-+}
-+const RANGE_3_10 = { rows: seq(3, 10), cols: seq(3, 10) };
-+const pickFile = (page, fx) => page.setInputFiles('#image-file', { name: fx.name, mimeType: fx.mimeType, buffer: fx.buffer });
-+const selectsOf = (page) => page.evaluate(() => [Number(document.getElementById('rows').value), Number(document.getElementById('cols').value)]);
-+// The preview canvas: visibility, state, CSS box, backing size, devicePixelRatio and window height.
-+const previewOf = (page) => page.$eval('#new-preview', (cv) => {
-+  const r = cv.getBoundingClientRect();
-+  return { hidden: cv.hidden, display: getComputedStyle(cv).display, state: cv.dataset.state, cssW: r.width, cssH: r.height, bw: cv.width, bh: cv.height, dpr: window.devicePixelRatio, ih: window.innerHeight };
-+});
-+// RGBA of the backing store at each [x, y] (backing px).
-+const previewPx = (page, pts) => page.$eval('#new-preview', (cv, pts) => {
-+  const g = cv.getContext('2d');
-+  return pts.map(([x, y]) => Array.from(g.getImageData(Math.min(cv.width - 1, Math.max(0, Math.floor(x))), Math.min(cv.height - 1, Math.max(0, Math.floor(y))), 1, 1).data));
-+}, pts);
-+// Backing-store pixels whose blue is under 90: only the dimmed overflow (blue 128 x 0.4) is that dark.
-+const dimmedCount = (page) => page.$eval('#new-preview', (cv) => {
-+  const d = cv.getContext('2d').getImageData(0, 0, cv.width, cv.height).data;
-+  let n = 0;
-+  for (let i = 0; i < d.length; i += 4) if (d[i + 2] < 90) n++;
-+  return n;
-+});
-+// Runs of white (all channels >= 250) pixels along row y (axis 'x') or column x (axis 'y'): [start, length] each.
-+const whiteRuns = (page, axis, at) => page.$eval('#new-preview', (cv, [axis, at]) => {
-+  const g = cv.getContext('2d');
-+  const n = axis === 'x' ? cv.width : cv.height;
-+  const d = axis === 'x' ? g.getImageData(0, Math.floor(at), cv.width, 1).data : g.getImageData(Math.floor(at), 0, 1, cv.height).data;
-+  const runs = [];
-+  for (let i = 0; i < n; i++) {
-+    if (d[4 * i] >= 250 && d[4 * i + 1] >= 250 && d[4 * i + 2] >= 250) { if (runs.length && runs[runs.length - 1][0] + runs[runs.length - 1][1] === i) runs[runs.length - 1][1]++; else runs.push([i, 1]); }
-+  }
-+  return runs;
-+}, [axis, at]);
-+// Wait until #new-preview's data-state is the wanted one (and, with a fixture, its box has that picture's shape: the old picture may still be showing).
-+const waitPreview = (page, state = 'ready', fx = null) => page.waitForFunction(([s, a]) => {
-+  const cv = document.getElementById('new-preview');
-+  if (cv.dataset.state !== s) return false;
-+  if (!a) return true;
-+  const q = cv.getBoundingClientRect();
-+  return Math.abs(q.width / q.height - a) <= 0.03 * a;
-+}, [state, fx ? fx.W / fx.H : null]);
-+// Poll a synchronous condition every 50ms until it holds; throw after ms.
-+const until = async (fn, what, ms = 8000) => { const t0 = Date.now(); while (!fn()) { if (Date.now() - t0 > ms) throw new Error('timed out waiting for ' + what); await sleep(50); } };
-+// Throw unless the shown preview of fixture fx at r x c is laid out, lit, dimmed and cut as plan I3 and I5 say.
-+async function expectPreview(page, fx, r, c, dprWant, tag, say) {
-+  const p = await previewOf(page);
-+  ok(!p.hidden && p.display !== 'none', tag + ': preview hidden');
-+  eq(p.state, 'ready', tag + ' data-state');
-+  eq(p.dpr, dprWant, tag + ' devicePixelRatio');
-+  ok(Math.abs(p.cssH - p.cssW * fx.H / fx.W) <= 1, `${tag}: css ${p.cssW}x${p.cssH} is not the picture's shape ${fx.W}:${fx.H}`);
-+  eq([p.bw, p.bh], [Math.round(p.cssW * p.dpr), Math.round(p.cssH * p.dpr)], tag + ' backing store against css size');
-+  const limH = Math.min(200, p.ih / 4);
-+  ok(p.cssW <= 400.01 && p.cssH <= limH + 0.01, `${tag}: css ${p.cssW}x${p.cssH} over the 400x${limH} box`);
-+  ok(p.cssW >= 399 || p.cssH >= limH - 1, `${tag}: css ${p.cssW}x${p.cssH} does not reach a limit of the 400x${limH} box`);
-+  const o = cropOracle(fx.W, fx.H, r, c, 1, fx.W / 2, fx.H / 2);
-+  const sx = p.bw / fx.W, sy = p.bh / fx.H;
-+  const x0 = o.sx * sx, x1 = (o.sx + o.cw) * sx, y0 = o.sy * sy, y1 = (o.sy + o.ch) * sy;
-+  const t = Math.max(1, Math.round(p.dpr));
-+  const vline = (k) => x0 + k * (x1 - x0) / c, hline = (k) => y0 + k * (y1 - y0) / r;
-+  const onLine = (x, y) => seq(1, c - 1).some((k) => Math.abs(x - vline(k)) <= t + 2) || seq(1, r - 1).some((k) => Math.abs(y - hline(k)) <= t + 2);
-+  const grad = (px, py) => [255 * ((Math.floor(px) + 0.5) * fx.W / p.bw) / (fx.W - 1), 255 * ((Math.floor(py) + 0.5) * fx.H / p.bh) / (fx.H - 1), 128];
-+  // Lit: a 7x7 grid inside the lit rect, off the cut lines, is the picture at full brightness.
-+  const lit = [];
-+  for (let i = 0; i < 7; i++) for (let j = 0; j < 7; j++) { const x = x0 + (i + 0.5) / 7 * (x1 - x0), y = y0 + (j + 0.5) / 7 * (y1 - y0); if (!onLine(x, y)) lit.push([x, y]); }
-+  ok(lit.length >= 10, `${tag}: only ${lit.length} lit sample points off the cut lines`);
-+  const litPx = await previewPx(page, lit);
-+  let worst = 0;
-+  lit.forEach(([x, y], i) => { const want = grad(x, y); for (let k = 0; k < 3; k++) { const e = Math.abs(litPx[i][k] - want[k]); worst = Math.max(worst, e); ok(e <= 6, `${tag}: lit pixel (${Math.floor(x)}, ${Math.floor(y)}) is ${litPx[i].slice(0, 3)}, the gradient says ${want.map((v) => v.toFixed(0))}`); } });
-+  // Dimmed: each band outside the lit rect (when at least 4 backing px wide) is 0.4 of the gradient.
-+  const dim = [];
-+  for (let j = 0; j < 7; j++) {
-+    const f = (j + 0.5) / 7;
-+    if (x0 >= 4) dim.push([x0 / 2, f * p.bh]);
-+    if (p.bw - x1 >= 4) dim.push([(x1 + p.bw) / 2, f * p.bh]);
-+    if (y0 >= 4) dim.push([f * p.bw, y0 / 2]);
-+    if (p.bh - y1 >= 4) dim.push([f * p.bw, (y1 + p.bh) / 2]);
-+  }
-+  const whole = o.cw >= fx.W - 0.5 && o.ch >= fx.H - 0.5;
-+  const dimmed = await dimmedCount(page);
-+  if (whole) { eq(dim.length, 0, tag + ' dim sample points when the shapes match'); eq(dimmed, 0, tag + ' dimmed pixels when the shapes match'); } else { ok(dim.length >= 7, `${tag}: only ${dim.length} dim sample points`); ok(dimmed > 0, tag + ': nothing dimmed although the crop is smaller than the picture'); }
-+  const dimPx = await previewPx(page, dim);
-+  dim.forEach(([x, y], i) => { const want = grad(x, y).map((v) => v * 0.4); for (let k = 0; k < 3; k++) ok(Math.abs(dimPx[i][k] - want[k]) <= 6, `${tag}: dimmed pixel (${Math.floor(x)}, ${Math.floor(y)}) is ${dimPx[i].slice(0, 3)}, 0.4 x gradient says ${want.map((v) => v.toFixed(0))}`); });
-+  // Cut lines: c-1 white runs along the middle of the first cell row, r-1 down the first cell column, each t wide, within 1 backing px of the oracle position.
-+  const vr = await whiteRuns(page, 'x', y0 + 0.5 * (y1 - y0) / r), hr = await whiteRuns(page, 'y', x0 + 0.5 * (x1 - x0) / c);
-+  eq(vr.length, c - 1, tag + ' vertical cut lines');
-+  eq(hr.length, r - 1, tag + ' horizontal cut lines');
-+  vr.forEach(([s, n], i) => { eq(n, t, `${tag} vertical line ${i + 1} width`); ok(Math.abs(s - vline(i + 1)) <= 1.01, `${tag}: vertical line ${i + 1} at ${s}, oracle ${vline(i + 1).toFixed(2)}`); });
-+  hr.forEach(([s, n], i) => { eq(n, t, `${tag} horizontal line ${i + 1} width`); ok(Math.abs(s - hline(i + 1)) <= 1.01, `${tag}: horizontal line ${i + 1} at ${s}, oracle ${hline(i + 1).toFixed(2)}`); });
-+  say(`${tag}: css ${p.cssW}x${p.cssH}, store ${p.bw}x${p.bh} at dpr ${p.dpr}; lit rect (${x0.toFixed(1)}, ${y0.toFixed(1)})-(${x1.toFixed(1)}, ${y1.toFixed(1)}); ${lit.length} lit and ${dim.length} dim samples, worst lit error ${worst.toFixed(2)}; ${dimmed} dimmed px; ${vr.length}+${hr.length} cut lines`);
-+  return { p, o };
-+}
-+// Requests the #18 checks may make: the page, data:, blob: URLs of the page or a driver origin, and the app paths on a driver origin.
-+const recAllowed = (u) => {
-+  if (u === PAGE_URL || u === 'data:,') return true;
-+  if (u.startsWith('blob:')) { const inner = u.slice(5); if (inner.startsWith('null/')) return true; try { return driverOrigins.has(new URL(inner).origin); } catch (_) { return false; } }
-+  let q;
-+  try { q = new URL(u); } catch (_) { return false; }
-+  return driverOrigins.has(q.origin) && (q.pathname === '/' || q.pathname === '/index.html' || q.pathname === '/settings.json' || q.pathname.startsWith('/images/'));
-+};
-+
- async function main() {
-   const browser = await chromium.launch({ channel: 'chrome', headless: true });
-   const tmpVideo = fs.mkdtempSync(path.join(os.tmpdir(), 'shuffle-video-'));
-   await makeFixtures(browser);
-+  await makeExtraFixtures(browser);
- 
-   async function newPage(opts = {}, pageUrl = PAGE_URL) {
-     const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 }, ...opts });
-@@ -1060,7 +1204,7 @@ async function main() {
+@@ -1204,7 +1204,7 @@ async function main() {
  
    await run('code-shape', async ({ say }) => {
      const html = fs.readFileSync(path.join(SITE, 'index.html'), 'utf8');
--    for (const f of ['render', 'move', 'setSize', 'shuffle', 'isSolvable', 'isSolved', 'checkWin', 'openNew', 'startNew', 'onDecoded', 'onRejected', 'cropRect', 'openCrop', 'drawCrop', 'moveCrop', 'cutImage', 'cropDone', 'loadPresets', 'parseListing', 'onListed', 'gridRange', 'applyRange', 'loadSettings', 'flip', 'drawBack', 'greyscale', 'isLocked']) {
-+    for (const f of ['render', 'move', 'setSize', 'shuffle', 'isSolvable', 'isSolved', 'checkWin', 'openNew', 'startNew', 'onDecoded', 'onRejected', 'cropRect', 'openCrop', 'drawCrop', 'moveCrop', 'cutImage', 'cropDone', 'loadPresets', 'parseListing', 'onListed', 'gridRange', 'applyRange', 'loadSettings', 'flip', 'drawBack', 'greyscale', 'isLocked', 'presetBlob', 'recommend', 'setPreview', 'loadPreview', 'drawPreview']) {
+-    for (const f of ['render', 'move', 'setSize', 'shuffle', 'isSolvable', 'isSolved', 'checkWin', 'openNew', 'startNew', 'onDecoded', 'onRejected', 'cropRect', 'openCrop', 'drawCrop', 'moveCrop', 'cutImage', 'cropDone', 'loadPresets', 'parseListing', 'onListed', 'gridRange', 'applyRange', 'loadSettings', 'flip', 'drawBack', 'greyscale', 'isLocked', 'presetBlob', 'recommend', 'setPreview', 'loadPreview', 'drawPreview']) {
++    for (const f of ['render', 'move', 'setSize', 'shuffle', 'isSolvable', 'isSolved', 'checkWin', 'openNew', 'startNew', 'onDecoded', 'onRejected', 'cropRect', 'openCrop', 'drawCrop', 'moveCrop', 'cutImage', 'cropDone', 'loadPresets', 'parseListing', 'onListed', 'gridRange', 'applyRange', 'loadSettings', 'flip', 'drawBack', 'greyscale', 'isLocked', 'presetBlob', 'recommend', 'setPreview', 'loadPreview', 'drawPreview', 'saveGame', 'restoreGame', 'savedPreset']) {
        const re = new RegExp('//[^\\n]*\\r?\\n\\s*function ' + f + '\\b');
        ok(re.test(html), `function ${f} missing or has no comment above`);
        say(`function ${f}: present with comment`);
-@@ -1364,13 +1508,14 @@ async function main() {
-     const fx = FIX['landscape.png'];
-     await page.setInputFiles('#image-file', { name: fx.name, mimeType: fx.mimeType, buffer: fx.buffer });
-     ok(await page.isChecked('#kind-image'), 'choosing a file did not check Image');
-+    await waitPreview(page);
-     await page.click('#new-start');
-     await page.waitForSelector('#crop-dialog[open]');
-     ok(await isOpen(page, 'crop-dialog'), 'crop dialog not open');
-     await cropDoneUI(page);
--    eq(await imgBoard(page), solvedBoard(9), 'image board');
--    eq(await page.$$eval('#board .tile.image', (e) => e.length), 8, 'image tile count');
--    say('file chosen -> Image checked -> Start -> crop dialog -> Done -> 8 image tiles, solved');
-+    eq(await imgBoard(page), solvedBoard(24), 'image board');
-+    eq(await page.$$eval('#board .tile.image', (e) => e.length), 23, 'image tile count');
-+    say('file chosen -> Image checked -> Start -> crop dialog -> Done -> 23 image tiles (landscape recommends 4x6), solved');
-   });
+@@ -3736,6 +3736,550 @@ async function main() {
+     }
+   }, { shoot: false });
  
-   // image-sizes: C2. Every size 3..10 x 3..10 with an image: split, mapping, solved start.
-@@ -2117,7 +2262,7 @@ async function main() {
-     page.on('request', (r) => seen.push(r.url()));
-     await page.goto(PAGE_URL);
-     await flow(page, '(a) file://', 'Preset pictures need Shuffle served over HTTP (see README).', 'fallback-a-file.png');
--    eq(seen.filter((u) => u !== PAGE_URL && u !== 'data:,'), [], '(a) requests other than the page');
-+    eq(seen.filter((u) => u !== PAGE_URL && u !== 'data:,' && !u.startsWith('blob:null/')), [], '(a) requests other than the page');
-     expectConsole(S.b.origin + '/images/');
-     const NONE = 'No preset pictures found.';
-     for (const [tag, srv, nm] of [['(b) 404', S.b, 'fallback-b-404.png'], ['(c) no links', S.c, 'fallback-c-nolinks.png'], ['(d) empty', S.d, 'fallback-d-empty.png']]) {
-@@ -3065,6 +3210,532 @@ async function main() {
-   }, { url: cn ? cn.origin + '/' : undefined });
-   if (cn) cn.settings = null;
- 
-+  // ---- #18 recommend a grid size from the picture and preview it. Expected values come from plan #18 sections 2 and 6 (I1-A), never from the app's code. ----
-+  const recMark = requests.length;
-+
-+  // rec-rule: R1. Picking a picture sets Rows and Columns to the I1-A recommendation, and Start plays exactly that grid.
-+  await run('rec-rule', async ({ page, say }) => {
-+    for (const cur of [[3, 3], [4, 4], [3, 10], [6, 5]]) {
-+      for (const [i, name] of REC_FX.entries()) {
-+        const fx = FIX[name];
-+        const tag = `${name} from ${cur[0]}x${cur[1]}`;
-+        await setSizeUI(page, cur[0], cur[1]);
-+        await page.click('#new');
-+        await pickFile(page, fx);
-+        await waitPreview(page, 'ready', fx);
-+        const got = await selectsOf(page);
-+        eq(got, recOracle(fx.W, fx.H, cur, RANGE_3_10), tag + ' against the oracle');
-+        eq(got, REC_ANCHORS[cur.join()][i], tag + ' against the plan anchor');
-+        await page.click('#new-start');
-+        await page.waitForSelector('#crop-dialog[open]');
-+        await cropDoneUI(page);
-+        const [r, c] = got;
-+        eq(await imgBoard(page), solvedBoard(r * c), tag + ' board');
-+        eq(await page.$$eval('#board .tile.image', (e) => e.length), r * c - 1, tag + ' image tiles');
-+        const pc = await expectPieces(page, fx, r, c, cropOracle(fx.W, fx.H, r, c, 1, fx.W / 2, fx.H / 2), tag);
-+        say(`${tag}: ${r}x${c}, ${pc.count} pieces, worst error ${pc.worst.toFixed(2)}px`);
-+      }
-+    }
-+  });
-+
-+  // rec-range: R1. The recommendation stays inside the offered range, including a late settings.json.
-+  await run('rec-range', async ({ page, say }) => {
++  // ---- #21 save the game in a cookie so a reload resumes it. Expected values come from plan #21 sections 2 and 6, never from the app's code. ----
++  const LONG = 'é'.repeat(200);
++  const oneSlide = (n) => { const t = solvedOf(n); t[n - 2] = 0; t[n - 1] = n - 1; return t; };
++  let saveErr = null;
++  try {
 +    need();
-+    S['s-rec'] = await serve(settingsRoot('s-rec', S_REC), settingsProbe(S_REC));
-+    const range = { rows: seq(4, 8), cols: seq(3, 6) };
-+    const want = { 'landscape.png': [4, 6], 'portrait.png': [6, 4], 'pano.png': [4, 6], 'square.png': [4, 4], 'wide4x3.png': [4, 5] };
-+    await withPage(U(S['s-rec']), async (pg) => {
-+      await ready(pg);
-+      eq(await board(pg), solvedBoard(12), '(a) game after the settings arrive');
-+      await gridOf(pg, 4, 3, '(a) game shape');
-+      for (const name of REC_FX) {
-+        const fx = FIX[name];
-+        await pg.click('#new');
-+        await pickFile(pg, fx);
-+        await waitPreview(pg, 'ready', fx);
-+        const got = await selectsOf(pg);
-+        eq(got, recOracle(fx.W, fx.H, [4, 3], range), `(a) ${name} against the oracle`);
-+        eq(got, want[name], `(a) ${name} against the plan`);
-+        await pg.click('#new-cancel');
-+      }
-+      say('(a) s-rec rows 4..8, cols 3..6 from 4x3: ' + JSON.stringify(want));
-+    });
-+    await withPage(U(S['s-flip']), async (pg) => {
-+      await ready(pg);
-+      await pg.click('#new');
-+      const fx = FIX['pano.png'];
-+      await pickFile(pg, fx);
-+      await waitPreview(pg, 'ready', fx);
-+      eq(await selectsOf(pg), [3, 12], '(b) pano over 3..12');
-+      say('(b) s-flip 3..12: pano -> 3,12');
-+    });
-+    cn.count = 0;
-+    cn.listing = () => ({ body: listingPage([]) });
-+    cn.settings = () => ({ delay: 2500, body: '{"grid":{"rows":{"min":4,"max":8}}}' });
-+    const mark = errors.length;
-+    try {
-+      await withPage(cn.origin + '/', async (pg) => {
-+        await newImageUI(pg, 3, 3);
-+        await cropDoneUI(pg);
-+        eq(await imgBoard(pg), solvedBoard(9), '(c) image game before the settings arrive');
-+        await pg.click('#new');
-+        await waitPreview(pg, 'current');
-+        ok(!(await previewOf(pg)).hidden, '(c) current picture not shown before the settings arrive');
-+        await ready(pg);
-+        ok(await isOpen(pg, 'new-dialog'), '(c) New dialog closed by the late settings');
-+        eq(await board(pg), solvedBoard(12), '(c) game after the settings arrive');
-+        await gridOf(pg, 4, 3, '(c) game shape');
-+        eq(await pg.$$eval('#board canvas', (e) => e.length), 0, '(c) image game survived the settings');
-+        const p = await previewOf(pg);
-+        ok(p.hidden, '(c) preview still shown');
-+        eq(p.state, 'none', '(c) data-state');
-+        say('(c) late settings with an image game: numbers 4x3, preview hidden, data-state none');
-+      });
-+    } finally {
-+      cn.settings = null;
-+    }
-+    eq(errors.slice(mark), [], '(c) console output');
-+  }, { url: U(S.real) });
++    const dir = settingsRoot('s-save', S_FLIP);
++    fs.writeFileSync(path.join(dir, 'images', 'landscape.png'), FIX['landscape.png'].buffer);
++    fs.writeFileSync(path.join(dir, 'images', 'portrait.png'), FIX['portrait.png'].buffer);
++    S['s-save'] = await serve(dir, settingsProbe(S_FLIP));
++  } catch (e) { saveErr = e.message; }
++  const needSave = () => { need(); if (saveErr) throw new Error('s-save server failed to start: ' + saveErr); };
++  // Page listeners that feed the shared request and console capture (and the page's own request list).
++  const track = (page, seen = []) => {
++    page.on('request', (r) => { requests.push(r.url()); seen.push(r.url()); });
++    page.on('pageerror', (e) => errors.push({ text: 'pageerror: ' + e.message, url: '' }));
++    page.on('console', (m) => { if (m.type() === 'error') errors.push({ text: 'console: ' + m.text(), url: m.location().url }); });
++    return seen;
++  };
++  // A fresh context with the shuffle cookie planted before the page loads (cookie: an object, a raw string or null); setup(ctx) may route requests first.
++  async function planted(pageUrl, cookie, setup) {
++    const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 } });
++    if (cookie !== null) await ctx.addCookies([{ name: 'shuffle', value: typeof cookie === 'string' ? cookie : encodeURIComponent(JSON.stringify(cookie)), domain: '127.0.0.1', path: '/' }]);
++    if (setup) await setup(ctx);
++    const page = await ctx.newPage();
++    const seen = track(page);
++    await page.goto(pageUrl);
++    return { ctx, page, seen };
++  }
++  // The shuffle cookie of a context as the browser stores it, with its decoded JSON; null when there is none.
++  const cookieOf = async (ctx) => {
++    const all = (await ctx.cookies()).filter((x) => x.name === 'shuffle');
++    return all.length ? { count: all.length, cookie: all[0], json: JSON.parse(decodeURIComponent(all[0].value)) } : null;
++  };
++  // The visible game: board labels, moves, timer, win banner, lock and aria-disabled tiles.
++  const saveState = async (page) => ({
++    labels: await imgBoard(page), moves: await movesOf(page), timer: await timerOf(page),
++    msg: await page.$eval('#message', (e) => !e.hidden), locked: await page.$eval('#board', (e) => e.classList.contains('locked')),
++    disabled: await page.$$eval('#board .tile:not(.empty)', (els) => els.filter((e) => e.getAttribute('aria-disabled') === 'true').length),
++  });
++  // Throw unless b (after a reload) is a: same board, moves, banner and lock; the timer is a's, or a's + 1 (a tick can land before the save).
++  function sameSave(a, b, tag) {
++    eq(b.labels, a.labels, tag + ' labels');
++    eq(b.moves, a.moves, tag + ' moves');
++    eq(b.msg, a.msg, tag + ' banner');
++    eq(b.locked, a.locked, tag + ' locked');
++    eq(b.disabled, a.disabled, tag + ' aria-disabled tiles');
++    ok(b.timer >= a.timer && b.timer <= a.timer + 1, `${tag} timer ${b.timer}, before the reload ${a.timer}`);
++  }
++  // until() for an async predicate.
++  const waitFor = async (fn, what, ms = 8000) => { const t0 = Date.now(); while (!(await fn())) { if (Date.now() - t0 > ms) throw new Error('timed out waiting for ' + what); await sleep(50); } };
++  // How many board tiles show a picture piece.
++  const imageTiles = (page) => page.$$eval('#board .tile.image', (e) => e.length);
++  // A tile beside the gap on a board of c columns, so a click on it is a legal slide.
++  const legalAny = async (page, c) => { const e = (await imgBoard(page)).indexOf('_'); return e % c ? e - 1 : e + 1; };
++  // New -> pick the preset, then set the size (the pick recommends one) -> Start; waits for the crop dialog.
++  const presetUI = async (page, r, c, label) => {
++    await page.click('#new');
++    await presetRowVisible(page);
++    await page.selectOption('#preset', { label });
++    await waitPreview(page, 'ready');
++    await page.selectOption('#rows', String(r));
++    await page.selectOption('#cols', String(c));
++    await page.click('#new-start');
++    await page.waitForSelector('#crop-dialog[open]');
++  };
++  // Reload, wait for the app, and read the visible game.
++  const reloadAndRead = async (page) => { await page.reload(); await ready(page); return saveState(page); };
 +
-+  // rec-real: R1. Every real preset gets the oracle's size from 3x3, and the plan's anchors where its natural size is the plan's.
-+  await run('rec-real', async ({ page, dir, say }) => {
++  // save-numbers: R1, I4. A reload resumes the numbers game with its moves and time; the timer is paused until the next slide.
++  await run('save-numbers', async ({ page, dir, say }) => {
++    need();
++    await click(page, 7);
++    await click(page, 6);
++    await waitFor(async () => (await timerOf(page)) >= 2, 'timer to reach 2s');
++    const a = await saveState(page);
++    eq(a.moves, 2, '(a) moves before');
++    ok(a.labels.join() !== SOLVED.join(), '(a) board still solved');
++    await page.reload();
++    const b = await saveState(page);
++    sameSave(a, b, '(a) after reload');
++    say(`(a) before ${JSON.stringify(a)}; after ${JSON.stringify(b)}`);
++    await sleep(1500);
++    eq(await timerOf(page), b.timer, '(b) timer moved while paused');
++    await click(page, await legalAny(page, 3));
++    eq(await movesOf(page), b.moves + 1, '(b) moves after one slide');
++    await sleep(1200);
++    ok((await timerOf(page)) >= b.timer + 1, `(b) timer ${await timerOf(page)} did not resume from ${b.timer}`);
++    say('(b) paused 1.5s, then a slide resumed it');
++    const c0 = await saveState(page);
++    const url = page.url();
++    await page.close({ runBeforeUnload: true });
++    const p2 = await page.context().newPage();
++    track(p2);
++    await p2.goto(url);
++    const c1 = await saveState(p2);
++    sameSave(c0, c1, '(c) new page');
++    await shot(p2, dir, 'screenshot.png');
++    say(`(c) before ${JSON.stringify(c0)}; new page ${JSON.stringify(c1)}`);
++  }, { url: U(S.a), shoot: false });
++
++  // save-changes: R1. Shuffle, a new numbers game and a win each survive a reload.
++  await run('save-changes', async ({ page, say }) => {
++    need();
++    await click(page, 7);
++    await page.click('#shuffle');
++    let a = await saveState(page);
++    sameSave(a, await reloadAndRead(page), '(a) Shuffle');
++    await gridOf(page, 3, 3, '(a)');
++    await setSizeUI(page, 4, 5);
++    await click(page, 18);
++    a = await saveState(page);
++    eq(a.labels.length, 20, '(b) cells before');
++    sameSave(a, await reloadAndRead(page), '(b) New 4x5');
++    await gridOf(page, 4, 5, '(b)');
++    await setSizeUI(page, 3, 3);
++    await click(page, 7);
++    await click(page, 8);
++    a = await saveState(page);
++    ok(a.msg && a.locked, '(c) not won before the reload');
++    sameSave(a, await reloadAndRead(page), '(c) win');
++    await gridOf(page, 3, 3, '(c)');
++    say('Shuffle, New 4x5 with a slide and a 3x3 win each came back after a reload');
++  }, { url: U(S.a) });
++
++  // save-won: I5. A solved game reloads solved: banner, locked board, frozen timer, until Shuffle.
++  await run('save-won', async ({ page, dir, say }) => {
++    need();
++    await click(page, 7);
++    await click(page, 8);
++    const a = await saveState(page);
++    ok(a.msg && a.locked && a.moves === 2, 'not won before the reload: ' + JSON.stringify(a));
++    const b = await reloadAndRead(page);
++    sameSave(a, b, 'after reload');
++    ok(b.msg && b.locked, 'banner or lock missing after the reload');
++    eq(b.disabled, 8, 'aria-disabled tiles');
++    await shot(page, dir, 'after-reload.png');
++    for (let i = 0; i < 9; i++) await fclick(page, i);
++    await sleep(1500);
++    const c = await saveState(page);
++    eq({ ...c, timer: 0 }, { ...b, timer: 0 }, 'state after clicks on the locked board');
++    eq(c.timer, b.timer, 'timer moved on the won board');
++    await page.click('#shuffle');
++    const d = await saveState(page);
++    ok(!d.msg && !d.locked, 'Shuffle did not unlock: ' + JSON.stringify(d));
++    say(`won board reloaded as ${JSON.stringify(b)}; clicks ignored; Shuffle unlocked`);
++  }, { url: U(S.a) });
++
++  // save-preset: R2, I2. A preset picture game resumes with the same picture and crop; the re-crop path keeps the picture.
++  await run('save-preset', async ({ page, dir, say }) => {
++    needSave();
++    const fx = FIX['landscape.png'];
++    await presetUI(page, 3, 4, 'landscape');
++    await setZoom(page, 1.5);
++    await page.focus('#crop-view');
++    for (let i = 0; i < 3; i++) await page.keyboard.press('ArrowRight');
++    const o0 = cropOracle(fx.W, fx.H, 3, 4, 1.5, 300, 200);
++    const o = cropOracle(fx.W, fx.H, 3, 4, 1.5, 300 - 3 * 0.05 * o0.cw, 200);
++    await cropDoneUI(page);
++    await page.click('#shuffle');
++    await click(page, await legalAny(page, 4));
++    const a = await saveState(page);
++    eq(a.moves, 1, 'moves before');
++    await expectPieces(page, fx, 3, 4, o, 'before the reload');
++    await shot(page, dir, 'before.png');
++    await page.reload();
++    await page.waitForSelector('#board .tile.image');
++    const b = await saveState(page);
++    sameSave(a, b, '(a) after reload');
++    const pc = await expectPieces(page, fx, 3, 4, o, 'after the reload');
++    await shot(page, dir, 'after.png');
++    await flipUI(page);
++    eq((await backGeom(page)).capText, 'landscape', 'back caption after the reload');
++    await flipUI(page);
++    say(`(a) ${JSON.stringify(b)}; ${pc.count} pieces, worst error ${pc.worst.toFixed(2)}px against the moved crop`);
++    // (e) re-crop path
++    await page.click('#new');
++    await page.click('#new-start');
++    await page.waitForSelector('#crop-dialog[open]');
++    await cropDoneUI(page);
++    ok((await cookieOf(page.context())).json.url.endsWith('/images/landscape.png'), '(e) cookie lost the picture after the re-crop');
++    await page.reload();
++    await page.waitForSelector('#board .tile.image');
++    eq(await imageTiles(page), 11, '(e) image tiles after the second reload');
++    ok((await cookieOf(page.context())).json.url.endsWith('/images/landscape.png'), '(e) cookie url after the second reload');
++    say('(e) re-crop at the default crop, then a reload: image tiles back, cookie still has the landscape url');
++  }, { url: U(S['s-save']) });
++
++  // save-preset-switch: I2. The picture saved is the one Start fetched, even if the Picture select changes while it loads.
++  await run('save-preset-switch', async ({ page, say }) => {
++    needSave();
++    await ready(page);
++    await page.click('#new');
++    await presetRowVisible(page);
++    await page.selectOption('#preset', { label: 'landscape' });
++    await waitPreview(page, 'ready');
++    let release, hit = false;
++    const gate = new Promise((r) => { release = r; });
++    await page.route('**/images/landscape.png', async (route) => { hit = true; await gate; await route.continue(); });
++    try {
++      await page.click('#new-start');
++      await waitFor(() => hit, 'the held landscape request');
++      await page.selectOption('#preset', { label: 'portrait' });
++      await waitPreview(page, 'ready');
++    } finally {
++      release();
++    }
++    await page.waitForSelector('#crop-dialog[open]');
++    await cropDoneUI(page);
++    const ck = await cookieOf(page.context());
++    ok(ck.json.url && ck.json.url.endsWith('/images/landscape.png'), 'cookie url is ' + ck.json.url + ', not the landscape that was cropped');
++    say('Start on landscape, Picture changed to portrait while the fetch was held: cookie url ' + ck.json.url);
++  }, { url: U(S['s-save']) });
++
++  // save-preset-real: R2. The first real preset resumes as its picture and its cookie fits.
++  await run('save-preset-real', async ({ page, say }) => {
 +    need();
 +    await ready(page);
 +    await page.click('#new');
 +    await presetRowVisible(page);
 +    const opts = await presetOptions(page);
-+    await page.click('#new-cancel');
-+    ok(opts.length >= 1, 'no presets listed');
-+    let shots = 0;
-+    for (const o of opts) {
-+      await page.click('#new');
-+      await presetRowVisible(page);
-+      await page.selectOption('#preset', { label: o.text });
-+      await waitPreview(page, 'ready');
-+      const nat = await page.evaluate(async (u) => { const i = new Image(); i.src = u; await i.decode(); return [i.naturalWidth, i.naturalHeight]; }, o.value);
-+      const got = await selectsOf(page);
-+      eq(got, recOracle(nat[0], nat[1], [3, 3], RANGE_3_10), `${o.text} (${nat[0]}x${nat[1]}) against the oracle`);
-+      const plan = REC_REAL.find((x) => o.text.includes(x[0]));
-+      if (plan && plan[1] === nat[0] && plan[2] === nat[1]) eq(got, plan[3], `${o.text} against the plan anchor`);
-+      else say(`${o.text}: natural size ${nat} is not the plan's ${plan ? plan.slice(1, 3) : 'unlisted'}; the plan anchor is not applied`);
-+      if (shots++ < 2) await shot(page, dir, o.text.replace(/[^A-Za-z0-9]+/g, '-') + '.png');
-+      say(`${o.text}: ${nat[0]}x${nat[1]} -> ${got[0]}x${got[1]}`);
-+      await page.click('#new-cancel');
-+    }
-+  }, { url: U(S.real) });
-+
-+  // rec-sized: I2. The player's choice wins: once Rows or Columns changed in this opening, a picture never moves them.
-+  await run('rec-sized', async ({ page, say }) => {
-+    need();
-+    const land = FIX['landscape.png'], port = FIX['portrait.png'], sq = FIX['square.png'];
-+    await page.click('#new');
-+    await page.selectOption('#rows', '3');
-+    await page.selectOption('#cols', '3');
-+    await pickFile(page, land);
-+    await waitPreview(page, 'ready', land);
-+    eq(await selectsOf(page), [3, 3], '(a) selects after choosing the same values and a picture');
++    ok(opts.length >= 1, 'no real presets');
++    await page.selectOption('#preset', { label: opts[0].text });
++    await waitPreview(page, 'ready');
++    const size = await selectsOf(page);
 +    await page.click('#new-start');
 +    await page.waitForSelector('#crop-dialog[open]');
 +    await cropDoneUI(page);
-+    eq(await imgBoard(page), solvedBoard(9), '(a) board');
-+    say('(a) 3,3 chosen then landscape: stays 3x3 and Start gives 3x3');
-+    await page.click('#new');
-+    await pickFile(page, land);
-+    await waitPreview(page, 'ready', land);
-+    eq(await selectsOf(page), [4, 6], '(b) landscape recommendation');
-+    await page.selectOption('#cols', '4');
-+    await pickFile(page, port);
-+    await waitPreview(page, 'ready', port);
-+    eq(await selectsOf(page), [4, 4], '(b) selects after choosing Columns and then portrait');
-+    await page.click('#new-cancel');
-+    say('(b) landscape -> 4,6; Columns 4 then portrait: 4,4');
-+    await page.click('#new');
-+    await pickFile(page, land);
-+    await waitPreview(page, 'ready', land);
-+    eq(await selectsOf(page), [4, 6], '(c) landscape recommendation');
-+    await pickFile(page, sq);
-+    await waitPreview(page, 'ready', sq);
-+    eq(await selectsOf(page), [3, 3], '(c) square re-recommended from the current 3x3 game');
-+    await page.click('#new-cancel');
-+    say('(c) landscape then square without touching the selects: 3,3, no drift');
-+    await withPage(U(S.a), async (pg) => {
-+      await pg.click('#new');
-+      await presetRowVisible(pg);
-+      await pg.selectOption('#preset', { label: 'portrait' });
-+      await waitPreview(pg, 'ready', port);
-+      eq(await selectsOf(pg), [6, 4], '(d) preset portrait');
-+      await pg.click('#new-cancel');
-+      await pg.click('#new');
-+      await presetRowVisible(pg);
-+      eq(await selectsOf(pg), [3, 3], '(d) selects after reopening');
-+      const p = await previewOf(pg);
-+      ok(p.hidden, '(d) preview shown on reopening');
-+      eq(p.state, 'none', '(d) data-state on reopening');
-+      say('(d) preset portrait -> 6,4; Cancel and reopen: 3,3 and no preview');
-+    });
-+  });
++    await page.click('#shuffle');
++    const a = await saveState(page);
++    await page.reload();
++    await page.waitForSelector('#board .tile.image');
++    sameSave(a, await saveState(page), 'after reload');
++    eq(await imageTiles(page), size[0] * size[1] - 1, 'image tiles');
++    await flipUI(page);
++    eq((await backGeom(page)).capText, opts[0].text, 'caption');
++    const len = await page.evaluate(() => document.cookie.length);
++    ok(len <= 3500 + 'shuffle='.length, 'document.cookie is ' + len + ' characters');
++    say(`${opts[0].text} at ${size.join('x')}: image tiles back, cookie ${len} characters`);
++  }, { url: U(S.real) });
 +
-+  // rec-follow: R2, I3. The drawing follows Rows and Columns; Numbers hides it; the current picture shows without a recommendation.
-+  await run('rec-follow', async ({ page, dir, say }) => {
-+    const land = FIX['landscape.png'];
-+    await page.click('#new');
-+    await pickFile(page, land);
-+    await waitPreview(page, 'ready', land);
-+    const p0 = await previewOf(page);
-+    for (const [r, c] of [[3, 3], [3, 5], [5, 3], [10, 10], [3, 10]]) {
-+      await page.selectOption('#rows', String(r));
-+      await page.selectOption('#cols', String(c));
-+      const { p } = await expectPreview(page, land, r, c, 1, `(a) ${r}x${c}`, say);
-+      eq([p.bw, p.bh], [p0.bw, p0.bh], `(a) ${r}x${c} backing size`);
-+    }
-+    await shot(page, dir, 'follow-3x10.png');
-+    await page.check('#kind-numbers');
-+    ok((await previewOf(page)).hidden, '(b) preview shown with Numbers');
-+    await page.check('#kind-image');
-+    ok(!(await previewOf(page)).hidden, '(b) preview hidden with Image');
-+    await expectPreview(page, land, 3, 10, 1, '(b) back to Image', say);
-+    await page.click('#new-cancel');
-+    await newImageUI(page, 4, 5);
++  // save-own-file: I3-A. An own-file game resumes as numbers: same order, moves and time.
++  await run('save-own-file', async ({ page, say }) => {
++    need();
++    await newImageUI(page, 3, 3);
 +    await cropDoneUI(page);
-+    await page.click('#new');
-+    await waitPreview(page, 'current');
-+    const pc = await previewOf(page);
-+    ok(!pc.hidden, '(c) current picture not shown');
-+    ok(Math.abs(pc.cssH - pc.cssW * land.H / land.W) <= 1, '(c) current picture shape');
-+    eq(await selectsOf(page), [4, 5], '(c) selects with the current picture');
-+    await page.click('#new-cancel');
-+    await setSizeUI(page, 3, 3);
-+    await page.click('#new');
-+    const pn = await previewOf(page);
-+    ok(pn.hidden, '(c) preview shown for a numbers game');
-+    eq(pn.state, 'none', '(c) data-state for a numbers game');
-+    say('(b) Numbers hides, Image shows; (c) current picture shown at 4,5 with no recommendation, hidden for a numbers game');
-+  });
++    await page.click('#shuffle');
++    await click(page, await legalAny(page, 3));
++    const a = await saveState(page);
++    eq(a.moves, 1, 'moves before');
++    sameSave(a, await reloadAndRead(page), 'after reload');
++    eq(await imageTiles(page), 0, 'image tiles after the reload');
++    await flipUI(page);
++    eq((await backGeom(page)).capText, `Shuffle 3${TIMES}3`, 'back shows the number grid');
++    say('own file game came back as numbers in the same order: ' + JSON.stringify(a.labels));
++  }, { url: U(S.a) });
 +
-+  // rec-preview: R3. The picture fills the grid (cover), the overflow is dimmed, and the box is fitted.
-+  await run('rec-preview', async ({ page, dir, say }) => {
-+    for (const [name, combos] of [['landscape.png', [[3, 3], [3, 5], [5, 3], [3, 10], [4, 6]]], ['portrait.png', [[3, 3], [5, 3]]], ['pano.png', [[3, 10]]]]) {
-+      const fx = FIX[name];
-+      await page.click('#new');
-+      await pickFile(page, fx);
-+      await waitPreview(page, 'ready', fx);
-+      for (const [r, c] of combos) {
-+        await page.selectOption('#rows', String(r));
-+        await page.selectOption('#cols', String(c));
-+        await expectPreview(page, fx, r, c, 1, `${name} ${r}x${c}`, say);
-+        await shot(page, dir, `${name.replace('.png', '')}-${r}x${c}.png`);
-+      }
-+      await page.click('#new-cancel');
-+    }
-+    const g = await newPage({ deviceScaleFactor: 2 });
++  // save-preset-missing: I6. A preset that cannot load falls back to numbers and the cookie drops the picture.
++  await run('save-preset-missing', async ({ page, say }) => {
++    needSave();
++    const imgPath = path.join(S['s-save'].root, 'images', 'landscape.png');
++    await page.route('**/images/landscape.png', (r) => r.continue()); // an intercepted page bypasses the HTTP cache, so the deleted file is really asked for again
 +    try {
-+      const fx = FIX['landscape.png'];
-+      await g.page.click('#new');
-+      await pickFile(g.page, fx);
-+      await waitPreview(g.page, 'ready', fx);
-+      await g.page.selectOption('#rows', '3');
-+      await g.page.selectOption('#cols', '5');
-+      await expectPreview(g.page, fx, 3, 5, 2, 'dpr 2 landscape 3x5', say);
-+      await shot(g.page, dir, 'landscape-3x5-dpr2.png');
++      await presetUI(page, 3, 3, 'landscape');
++      await cropDoneUI(page);
++      await page.click('#shuffle');
++      await click(page, await legalAny(page, 3));
++      const a = await saveState(page);
++      ok((await cookieOf(page.context())).json.url, '(a) no picture in the cookie before');
++      fs.rmSync(imgPath);
++      expectConsole(S['s-save'].origin + '/images/landscape.png');
++      await page.reload();
++      const b = await saveState(page);
++      sameSave(a, b, '(a) after reload');
++      await sleep(500);
++      eq(await imageTiles(page), 0, '(a) image tiles although the file is gone');
++      await waitFor(async () => !('url' in (await cookieOf(page.context())).json), '(a) the cookie to drop the url');
++      say('(a) file deleted: numbers in the same order, cookie without url');
++    } finally {
++      fs.writeFileSync(imgPath, FIX['landscape.png'].buffer);
++    }
++    const g = await planted(U(S['s-save']), { rows: 3, cols: 3, tiles: oneSlide(9), moves: 1, seconds: 0, url: S['s-save'].origin + '/images/landscape.png', crop: [0, 0, 5000, 5000], caption: 'landscape' });
++    try {
++      await ready(g.page);
++      await sleep(1000);
++      eq(await imgBoard(g.page), ['1', '2', '3', '4', '5', '6', '7', '_', '8'], '(b) board');
++      eq(await imageTiles(g.page), 0, '(b) image tiles for an oversized crop');
++      await waitFor(async () => !('url' in (await cookieOf(g.ctx)).json), '(b) the cookie to drop the url');
++      say('(b) crop larger than the picture: numbers, cookie without url');
 +    } finally {
 +      await g.ctx.close();
 +    }
-+  });
++  }, { url: U(S['s-save']) });
 +
-+  // rec-crop-match: R3. The crop dialog opens on exactly the area the preview lit.
-+  await run('rec-crop-match', async ({ page, say }) => {
-+    const land = FIX['landscape.png'], port = FIX['portrait.png'];
-+    await page.click('#new');
-+    await pickFile(page, land);
-+    await waitPreview(page, 'ready', land);
-+    eq(await selectsOf(page), [4, 6], 'landscape selects');
-+    await page.click('#new-start');
-+    await page.waitForSelector('#crop-dialog[open]');
-+    await expectCrop(page, land, 4, 6, 1, 300, 200, 'landscape 4x6', say);
-+    await page.click('#new');
-+    await pickFile(page, port);
-+    await waitPreview(page, 'ready', port);
-+    eq(await selectsOf(page), [6, 4], 'portrait selects');
-+    await page.click('#new-start');
-+    await page.waitForSelector('#crop-dialog[open]');
-+    await expectCrop(page, port, 6, 4, 1, 200, 300, 'portrait 6x4', say);
-+  });
++  // save-race: I6. A new game started while the saved picture is being fetched again wins.
++  await run('save-race', async ({ say }) => {
++    needSave();
++    const o = cropOracle(600, 400, 3, 4, 1, 300, 200);
++    const cookie = { rows: 3, cols: 4, tiles: oneSlide(12), moves: 1, seconds: 0, url: S['s-save'].origin + '/images/landscape.png', crop: [o.sx, o.sy, o.cw, o.ch], caption: 'landscape' };
++    let release;
++    const gate = new Promise((r) => { release = r; });
++    const hold = (ctx) => ctx.route('**/images/landscape.png', async (route) => { await gate; await route.continue(); });
++    const g = await planted(U(S['s-save']), cookie, hold);
++    try {
++      await ready(g.page);
++      eq(await imageTiles(g.page), 0, '(a) image tiles before the picture arrives');
++      await setSizeUI(g.page, 4, 3);
++      release();
++      await sleep(1000);
++      eq(await imageTiles(g.page), 0, '(a) late picture drawn over the new game');
++      await gridOf(g.page, 4, 3, '(a)');
++      ok(!('url' in (await cookieOf(g.ctx)).json), '(a) cookie still has the url');
++      say('(a) new numbers game 4x3 while the picture was held: still numbers, cookie without url');
++    } finally {
++      release();
++      await g.ctx.close();
++    }
++    const h = await planted(U(S['s-save']), cookie);
++    try {
++      await h.page.waitForSelector('#board .tile.image');
++      eq(await imageTiles(h.page), 11, '(b) image tiles');
++      say('(b) no new game: the picture arrives and 11 image tiles show');
++    } finally {
++      await h.ctx.close();
++    }
++  }, { shoot: false });
 +
-+  // rec-start: I4. Start uses what is shown; a recommendation never lands after Start was pressed.
-+  await run('rec-start', async ({ page, say }) => {
-+    const land = FIX['landscape.png'];
-+    await page.evaluate(() => {
-+      window.__g = { dec: [], bmp: [] };
-+      const realDecode = HTMLImageElement.prototype.decode;
-+      HTMLImageElement.prototype.decode = function () { return new Promise((res) => window.__g.dec.push(res)).then(() => realDecode.call(this)); };
-+      const realBmp = window.createImageBitmap.bind(window);
-+      window.createImageBitmap = (...a) => new Promise((res) => window.__g.bmp.push(res)).then(() => realBmp(...a));
-+    });
-+    const gate = (k) => page.waitForFunction(([k, n]) => window.__g[k].length === n, [k, 1]);
-+    const release = (k) => page.evaluate((k) => { const r = window.__g[k].shift(); if (r) r(); }, k);
-+    await page.click('#new');
-+    await pickFile(page, land);
-+    await waitPreview(page, 'loading');
-+    await gate('dec');
-+    await page.click('#new-start');
-+    await gate('bmp');
-+    eq(await selectsOf(page), [3, 3], '1. selects while the preview loads');
-+    await release('dec');
-+    await waitPreview(page, 'ready');
-+    ok(await isOpen(page, 'new-dialog'), '2. New dialog closed while Start is pending');
-+    eq(await selectsOf(page), [3, 3], '2. selects after the preview loaded');
-+    await release('bmp');
-+    await page.waitForSelector('#crop-dialog[open]');
-+    await cropDoneUI(page);
-+    eq(await imgBoard(page), solvedBoard(9), '3. board');
-+    await page.click('#new');
-+    eq(await selectsOf(page), [3, 3], '4. selects on reopening');
-+    say('Start pressed while the preview loaded: selects stayed 3,3 before and after it loaded, the game is 3x3');
-+  });
-+
-+  // rec-race: I3, I6. A stale preview load never acts, and a pending pick never shows the old picture.
-+  await run('rec-race', async ({ say }) => {
++  // save-tamper: R3, I7. Bad saves are ignored; a picture URL off the page's images/ is never fetched.
++  await run('save-tamper', async ({ say }) => {
 +    need();
-+    const land = FIX['landscape.png'], port = FIX['portrait.png'];
-+    const bytes = { '/images/a.png': land.buffer, '/images/b.png': port.buffer };
-+    const hold = { held: true, waiting: [] };
-+    cn.listing = () => ({ body: listingPage(['a.png', 'b.png']) });
++    const base = { rows: 3, cols: 3, tiles: oneSlide(9), moves: 1, seconds: 0 };
++    const bad = [
++      ['garbage', '%7Bnot-json'],
++      ['unsolvable', { ...base, tiles: [2, 1, 3, 4, 5, 6, 7, 8, 0] }],
++      ['duplicate tile', { ...base, tiles: [1, 1, 3, 4, 5, 6, 7, 0, 8] }],
++      ['rows 13', { ...base, rows: 13, tiles: oneSlide(39) }],
++      ['wrong length', { ...base, tiles: [1, 2, 3, 4, 5, 6, 7, 0] }],
++      ['negative moves', { ...base, moves: -1 }],
++    ];
++    for (const [name, ck] of bad) {
++      const g = await planted(U(S.a), ck);
++      try {
++        await ready(g.page);
++        await sleep(300);
++        eq(await board(g.page), SOLVED, name + ' board');
++        eq(await movesOf(g.page), 0, name + ' moves');
++        say(`${name}: fresh solved 3x3`);
++      } finally {
++        await g.ctx.close();
++      }
++    }
++    bad.push(['seconds 1.5', { ...base, seconds: 1.5 }]);
++    const crop = [0, 0, 600, 400];
++    const mark = cn.requests.length;
++    for (const [name, u] of [['second origin', cn.origin + '/images/ok.png'], ['dot-dot', S.a.origin + '/images/%2E%2E/settings.json']]) {
++      const g = await planted(U(S.a), { ...base, url: u, crop, caption: 'x' });
++      try {
++        await ready(g.page);
++        await sleep(800);
++        eq(await imgBoard(g.page), ['1', '2', '3', '4', '5', '6', '7', '_', '8'], name + ' board');
++        eq(await imageTiles(g.page), 0, name + ' image tiles');
++        const paths = [...new Set(g.seen.map((x) => new URL(x).pathname))];
++        eq(paths.filter((p) => p !== '/' && p !== '/settings.json'), [], name + ' paths requested');
++        say(`${name}: resumed as numbers; requests ${JSON.stringify(g.seen.map((x) => new URL(x).pathname))}`);
++      } finally {
++        await g.ctx.close();
++      }
++    }
++    eq(cn.requests.slice(mark), [], 'requests that reached the second origin');
++    // Picture saves that break one rule each: the board resumes as numbers and nothing but the page and settings.json is requested.
++    const okUrl = S.a.origin + '/images/x.png';
++    const pic = (name, over) => [name, { ...base, url: okUrl, crop, caption: 'x', ...over }];
++    const planted2 = [
++      pic('url in a subfolder', { url: S.a.origin + '/images/sub/x.png' }),
++      pic('url not a picture', { url: S.a.origin + '/images/x.txt' }),
++      pic('url with a query', { url: S.a.origin + '/images/x.png?a' }),
++      pic('url with a fragment', { url: S.a.origin + '/images/x.png#a' }),
++      pic('url with an encoded slash', { url: S.a.origin + '/images/..%2Fsettings.png' }),
++      pic('url with an encoded backslash', { url: S.a.origin + '/images/..%5Csettings.png' }),
++      pic('caption of 201 characters', { caption: 'x'.repeat(201) }),
++      pic('caption not a string', { caption: 5 }),
++      pic('crop with a zero width', { crop: [0, 0, 0, 10] }),
++      pic('crop with a negative origin', { crop: [-1, 0, 10, 10] }),
++      pic('crop with a non-number', { crop: [0, 0, 'a', 10] }),
++    ];
++    for (const [name, ck] of planted2) {
++      const g = await planted(U(S.a), ck);
++      try {
++        await ready(g.page);
++        await sleep(800);
++        eq(await imgBoard(g.page), ['1', '2', '3', '4', '5', '6', '7', '_', '8'], name + ' board');
++        eq(await imageTiles(g.page), 0, name + ' image tiles');
++        const paths = [...new Set(g.seen.map((x) => new URL(x).pathname))];
++        eq(paths.filter((p) => p !== '/' && p !== '/settings.json'), [], name + ' paths requested');
++        say(name + ': resumed as numbers; requests ' + JSON.stringify(g.seen.map((x) => new URL(x).pathname)));
++      } finally {
++        await g.ctx.close();
++      }
++    }
++  }, { shoot: false });
++
++  // save-range: I9. A saved size outside the offered range starts a numbers game at the nearest size and Start still works.
++  await run('save-range', async ({ say }) => {
++    need();
++    if (!realFiles.length) throw new Error('no real preset');
++    const url = S.real.origin + '/images/' + encodeURIComponent(realFiles[0]);
++    for (const n of [11, 12]) {
++      const g = await planted(U(S.real), { rows: n, cols: n, tiles: oneSlide(n * n), moves: 1, seconds: 0, url, crop: [0, 0, 100, 100], caption: 'x' });
++      try {
++        await ready(g.page);
++        await sleep(1500);
++        eq((await board(g.page)).length, 100, `(a) ${n}x${n} cells`);
++        await gridOf(g.page, 10, 10, `(a) ${n}x${n}`);
++        eq(await imageTiles(g.page), 0, `(a) ${n}x${n} image tiles`);
++        const ck = await cookieOf(g.ctx);
++        ok(!('url' in ck.json) && ck.json.rows === 10 && ck.json.cols === 10, `(a) ${n}x${n} cookie ${JSON.stringify(ck.json).slice(0, 80)}`);
++        await g.page.click('#new');
++        eq(await selectsOf(g.page), [10, 10], `(a) ${n}x${n} New prefill`);
++        await g.page.check('#kind-numbers');
++        await g.page.click('#new-start');
++        await g.page.waitForFunction(() => !document.getElementById('new-dialog').open);
++        await gridOf(g.page, 10, 10, `(a) ${n}x${n} after Start`);
++        say(`(a) ${n}x${n} save on 3..10: 10x10 numbers, cookie without url, New prefills 10/10, Start gives 10x10`);
++      } finally {
++        await g.ctx.close();
++      }
++    }
++    ok(S['s-rec'], '(b) the s-rec server is missing');
++    const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 } });
++    try {
++      const p1 = await ctx.newPage();
++      track(p1);
++      await p1.goto(U(S['s-save']));
++      await ready(p1);
++      await presetUI(p1, 3, 3, 'landscape');
++      await cropDoneUI(p1);
++      await p1.click('#shuffle');
++      await click(p1, await legalAny(p1, 3));
++      ok((await cookieOf(ctx)).json.url, '(b) no picture saved at 3x3');
++      const p2 = await ctx.newPage();
++      track(p2);
++      await p2.goto(U(S['s-rec']));
++      await ready(p2);
++      await sleep(1000);
++      await gridOf(p2, 4, 3, '(b)');
++      eq(await imageTiles(p2), 0, '(b) image tiles');
++      ok(!('url' in (await cookieOf(ctx)).json), '(b) cookie still has the url');
++      say('(b) 3x3 preset game, then a rows 4..8 server on the same host: numbers 4x3, cookie without url');
++    } finally {
++      await ctx.close();
++    }
++  }, { shoot: false });
++
++  // The 200-character name is served by the canned server: as a file under the temp root it passes Windows' 260-character path limit, which python cannot open.
++  // The canned server must be set up before run(): the page loads before fn runs.
++  const capOld = { listing: cn && cn.listing, settings: cn && cn.settings, extra: cn && cn.extra };
++  if (cn) {
++    cn.listing = () => ({ body: listingPage([encodeURIComponent(LONG) + '.png']) });
++    cn.settings = () => ({ body: S_FLIP });
 +    cn.extra = (req, res, p) => {
-+      if (!bytes[p]) return false;
-+      const send = () => { res.writeHead(200, { 'Content-Type': 'image/png' }); res.end(bytes[p]); };
-+      if (p === '/images/a.png' && hold.held) hold.waiting.push(send); else send();
++      if (p !== '/images/' + encodeURIComponent(LONG) + '.png') return false;
++      res.writeHead(200, { 'Content-Type': 'image/png' });
++      res.end(FIX['landscape.png'].buffer);
 +      return true;
 +    };
-+    const holdA = () => { hold.held = true; };
-+    const releaseA = () => { hold.held = false; hold.waiting.splice(0).forEach((f) => f()); };
-+    const askedA = () => cn.requests.filter((p) => p === '/images/a.png').length;
-+    const open = async (pg) => { await pg.click('#new'); await presetRowVisible(pg); };
-+    const pickA = async (pg) => { const n = askedA(); await pg.selectOption('#preset', { label: 'a' }); await until(() => askedA() > n, 'the request for a'); };
-+    try {
-+      await withPage(cn.origin + '/', async (pg) => {
-+        holdA();
-+        await open(pg);
-+        await pickA(pg);
-+        eq((await previewOf(pg)).state, 'loading', '(a) state while a is held');
-+        ok((await previewOf(pg)).hidden, '(a) preview shown while a is held');
-+        await pg.selectOption('#preset', { label: 'b' });
-+        await waitPreview(pg, 'ready', port);
-+        eq(await selectsOf(pg), [6, 4], '(a) selects follow b');
-+        releaseA();
-+        await sleep(500);
-+        eq(await selectsOf(pg), [6, 4], '(a) selects after a arrived');
-+        const p = await previewOf(pg);
-+        eq(p.state, 'ready', '(a) state after a arrived');
-+        ok(p.cssH > p.cssW, '(a) preview is not b (portrait)');
-+        const cs = await previewPx(pg, [[0, 0], [p.bw - 1, 0], [0, p.bh - 1], [p.bw - 1, p.bh - 1]]);
-+        [[0, 0], [255, 0], [0, 255], [255, 255]].forEach(([r, g], i) => { ok(Math.abs(cs[i][0] - r) <= 8 && Math.abs(cs[i][1] - g) <= 8 && Math.abs(cs[i][2] - 128) <= 8, `(a) corner ${i} is ${cs[i].slice(0, 3)}, portrait gradient says ${r},${g},128`); });
-+        say('(a) a then b: loading + hidden while a was held; after a arrived the selects stay 6,4 and the preview is b');
-+      });
-+      const mark = errors.length;
-+      await withPage(cn.origin + '/', async (pg) => {
-+        holdA();
-+        await open(pg);
-+        await pickA(pg);
-+        await pg.keyboard.press('Escape');
-+        releaseA();
-+        await sleep(500);
-+        ok(!(await isOpen(pg, 'new-dialog')), '(b) New dialog opened by the late preview');
-+        ok(!(await isOpen(pg, 'crop-dialog')), '(b) crop dialog opened by the late preview');
-+        eq(await board(pg), SOLVED, '(b) board');
-+        say('(b) a then Escape, a arrives: nothing opens or changes');
-+      });
-+      eq(errors.slice(mark), [], '(b) console output');
-+      await withPage(cn.origin + '/', async (pg) => {
-+        holdA();
-+        await open(pg);
-+        await pickA(pg);
-+        await pg.click('#new-cancel');
-+        await open(pg);
-+        await pg.selectOption('#preset', { label: 'b' });
-+        await waitPreview(pg, 'ready', port);
-+        releaseA();
-+        await sleep(500);
-+        eq(await selectsOf(pg), [6, 4], '(c) selects after the old a arrived');
-+        eq((await previewOf(pg)).state, 'ready', '(c) state');
-+        const pc = await previewOf(pg);
-+        ok(pc.cssH > pc.cssW, '(c) preview is not b (portrait)');
-+        say('(c) a, Cancel, reopen, b, then a arrives: the selects follow b');
-+      });
-+      await withPage(cn.origin + '/', async (pg) => {
-+        holdA();
-+        await newImageUI(pg, 3, 3);
-+        await cropDoneUI(pg);
-+        await open(pg);
-+        await waitPreview(pg, 'current');
-+        await pickA(pg);
-+        const p = await previewOf(pg);
-+        eq(p.state, 'loading', '(d) state while a is held over an image game');
-+        ok(p.hidden, '(d) the old picture is shown in place of the pending pick');
-+        releaseA();
-+        await waitPreview(pg, 'ready', land);
-+        say('(d) from an image game: the pending pick hides the current picture; after release it shows a');
-+      });
-+    } finally {
-+      releaseA();
-+      cn.extra = null;
-+    }
++  }
++  // save-cookie-cap: I8. A save too long for a cookie keeps the board as numbers instead of being dropped.
++  await run('save-cookie-cap', async ({ page, say }) => {
++    need();
++    ok(cn, 'canned server missing');
++    await ready(page);
++    await presetUI(page, 12, 12, LONG);
++    await cropDoneUI(page);
++    await page.click('#shuffle');
++    await click(page, await legalAny(page, 12));
++    const a = await saveState(page);
++    eq(a.moves, 1, 'moves before');
++    const ck = await cookieOf(page.context());
++    ok(ck.cookie.value.length <= 3500, 'cookie value is ' + ck.cookie.value.length + ' characters');
++    ok(!('url' in ck.json), 'cookie kept the url');
++    eq(ck.json.moves, 1, 'cookie moves (the write was dropped?)');
++    // Estimate of the value had the picture been kept: the saved one plus the url and the caption, each percent-encoded as JSON.
++    const est = ck.cookie.value.length + encodeURIComponent(JSON.stringify(LONG)).length + encodeURIComponent(JSON.stringify(cn.origin + '/images/' + encodeURIComponent(LONG) + '.png')).length;
++    ok(est > 3500, 'the uncapped value would be only about ' + est + ' characters, so the cap is not what dropped the picture');
++    sameSave(a, await reloadAndRead(page), 'after reload');
++    eq(await imageTiles(page), 0, 'image tiles after the reload');
++    ok(!('url' in (await cookieOf(page.context())).json), 'cookie url after the reload');
++    say(`12x12 preset with a 200-character name (within the 200 rule): cookie ${ck.cookie.value.length} characters, uncapped about ${est}, no url, resumed as numbers`);
++  }, { url: cn ? cn.origin + '/' : undefined });
++  if (cn) Object.assign(cn, capOld);
++
++  // save-file: I1-A. Chrome keeps no cookies on file:// pages, so a reload starts fresh there (documented).
++  await run('save-file', async ({ page, say }) => {
++    await click(page, 7);
++    eq(await movesOf(page), 1, 'moves before');
++    await page.reload();
++    eq(await board(page), SOLVED, 'board after the reload');
++    eq(await movesOf(page), 0, 'moves after the reload');
++    say('file://: no cookie, the reload starts a fresh solved 3x3');
 +  });
 +
-+  // rec-reopen: I3, D8. Reopening with no new pick keeps the game's size, loads no preview, and asks for nothing that was deleted.
-+  await run('rec-reopen', async ({ page, say }) => {
++  // save-scope: I2. Flip and an open New dialog are not saved.
++  await run('save-scope', async ({ page, say }) => {
 +    need();
-+    const fresh = path.join(tmpRoot, 'A', 'images', 'Fresh2.png');
-+    try {
-+      await newPresetUI(page, 5, 3, 'portrait');
-+      await cropDoneUI(page);
-+      const before = S.a.log.filter((e) => e.path.toLowerCase() === '/images/portrait.png').length;
-+      ok(before >= 1, 'portrait never requested');
-+      await page.click('#new');
-+      await presetRowVisible(page);
-+      eq(await selectsOf(page), [5, 3], 'selects on reopening');
-+      eq(await page.$eval('#preset', (e) => e.value), '', '#preset on reopening');
-+      await sleep(400);
-+      eq(S.a.log.filter((e) => e.path.toLowerCase() === '/images/portrait.png').length, before, 'requests for portrait across the reopen');
-+      await page.click('#new-cancel');
-+      say(`portrait requested ${before} times (preview and Start); reopening requested nothing more; selects 5,3, #preset empty`);
-+      fs.writeFileSync(fresh, FIX['landscape.png'].buffer);
-+      await page.click('#new');
-+      await page.waitForFunction(() => [...document.querySelectorAll('#preset option')].some((o) => o.textContent === 'Fresh2'));
-+      await page.selectOption('#preset', { label: 'Fresh2' });
-+      await waitPreview(page, 'ready');
-+      await page.click('#new-start');
-+      await page.waitForSelector('#crop-dialog[open]');
-+      await cropDoneUI(page);
-+      fs.rmSync(fresh);
-+      const n0 = S.a.log.length, e0 = errors.length;
-+      await page.click('#new');
-+      await presetRowVisible(page);
-+      await sleep(400);
-+      eq(S.a.log.slice(n0).filter((e) => e.path.includes('Fresh2')), [], 'requests for the deleted file after reopening');
-+      eq(S.a.log.slice(n0).filter((e) => e.code === 404), [], '404s after reopening');
-+      eq(errors.slice(e0), [], 'console output after reopening');
-+      say('delete then reopen: no request for the deleted file, no 404, no console output');
-+    } finally {
-+      fs.rmSync(fresh, { force: true });
-+    }
++    await click(page, 7);
++    await flipUI(page);
++    eq(await page.getAttribute('#flip', 'aria-pressed'), 'true', 'flipped before');
++    await page.reload();
++    eq(await page.getAttribute('#flip', 'aria-pressed'), 'false', 'aria-pressed after the reload');
++    await page.click('#new');
++    await page.selectOption('#rows', '5');
++    const a = await saveState(page);
++    await page.reload();
++    ok(!(await isOpen(page, 'new-dialog')), 'New dialog open after the reload');
++    sameSave(a, await saveState(page), 'game after the reload');
++    say('flip and the open New dialog were not saved; the game was');
 +  }, { url: U(S.a) });
 +
-+  // rec-redirect: I6. A preset that redirects away is refused for the preview as for Start, and nothing reaches the second origin.
-+  await run('rec-redirect', async ({ page, say }) => {
++  // save-cookie: I8. One cookie, strict, 30 days, the I2 fields only.
++  await run('save-cookie', async ({ page, say }) => {
 +    need();
-+    const cnX = await canned(FIX['landscape.png'].buffer);
-+    const cnR = await canned(FIX['landscape.png'].buffer);
-+    cnX.extra = (req, res, p) => { if (p !== '/images/x.png') return false; res.writeHead(200, { 'Content-Type': 'image/png' }); res.end(FIX['landscape.png'].buffer); return true; };
-+    cnR.listing = () => ({ body: listingPage(['r.png']) });
-+    cnR.extra = (req, res, p) => { if (p !== '/images/r.png') return false; res.writeHead(302, { Location: cnX.origin + '/images/x.png' }); res.end(); return true; };
-+    expectConsole(cnR.origin + '/images/r.png', 'Failed to load resource: net::ERR_FAILED');
-+    expectConsole(cnX.origin + '/images/x.png', 'Failed to load resource: net::ERR_FAILED');
-+    await withPage(cnR.origin + '/', async (pg) => {
-+      pg.on('console', (m) => say(`redirect case console: ${m.type()} ${m.text()} @ ${m.location().url}`));
-+      await pg.click('#new');
-+      await presetRowVisible(pg);
-+      await pg.selectOption('#preset', { label: 'r' });
-+      await waitPreview(pg, 'failed');
-+      ok((await previewOf(pg)).hidden, 'preview shown for a redirecting preset');
-+      eq(await selectsOf(pg), [3, 3], 'selects after the failed preview');
-+      await pg.click('#new-start');
-+      await pg.waitForFunction(() => { const e = document.getElementById('new-error'); return !e.hidden && e.textContent.includes('not an image'); });
-+      eq((await pg.textContent('#new-error')).trim(), 'That file is not an image.', 'Start text');
-+      await sleep(300);
-+    });
-+    eq(cnX.requests, [], 'requests that reached the second origin');
-+    say('redirecting preset: data-state failed, preview hidden, selects unchanged, Start says "That file is not an image.", nothing reached the second origin');
-+  });
++    await click(page, 7);
++    const ck = await cookieOf(page.context());
++    eq(ck.count, 1, 'shuffle cookies');
++    eq(ck.cookie.sameSite, 'Strict', 'sameSite');
++    eq(ck.cookie.path, '/', 'path');
++    const left = ck.cookie.expires - Date.now() / 1000;
++    ok(Math.abs(left - 30 * 24 * 3600) <= 60, 'expires in ' + left + 's');
++    eq(Object.keys(ck.json).sort(), ['cols', 'moves', 'rows', 'seconds', 'tiles'], 'fields');
++    eq(ck.json.tiles, oneSlide(9), 'tiles');
++    say(`cookie ${ck.cookie.value.length} characters, Strict, expires in ${Math.round(left)}s, fields ${Object.keys(ck.json)}`);
++  }, { url: U(S.a) });
 +
-+  // rec-layout: R4. The New dialog with the preview still fits and reads on every view.
-+  await run('rec-layout', async ({ page, dir, say }) => {
-+    need();
-+    const fit = async (pg, tag) => {
-+      const m = await pg.evaluate(() => {
-+        const d = document.querySelector('#new-dialog');
-+        const rc = (e) => { const q = e.getBoundingClientRect(); return { l: q.left, r: q.right, t: q.top, b: q.bottom, w: q.width, h: q.height }; };
-+        const n3 = (s) => (s.match(/[\d.]+/g) || []).slice(0, 3).map(Number);
-+        const vis = (e) => e.getClientRects().length > 0;
-+        const leaves = [...d.querySelectorAll('label, legend, .hint, h2, button')].filter(vis).map((e) => ({ name: e.tagName + (e.id ? '#' + e.id : ''), colour: n3(getComputedStyle(e).color) }));
-+        const greens = [d, ...d.querySelectorAll('*')].flatMap((e) => { const cs = getComputedStyle(e); return [['color', cs.color], ['background', cs.backgroundColor]].map(([k, v]) => ({ name: e.tagName + (e.id ? '#' + e.id : '') + ' ' + k, c: n3(v) })); }).filter((x) => x.c.length === 3 && x.c[1] > x.c[0] + 20 && x.c[1] > x.c[2] + 20).map((x) => x.name);
-+        return { d: rc(d), pv: rc(document.getElementById('new-preview')), pvHidden: document.getElementById('new-preview').hidden, sw: d.scrollWidth, cw: d.clientWidth, docCw: document.documentElement.clientWidth, ih: window.innerHeight, controls: [...d.querySelectorAll('button, select')].filter(vis).map((e) => ({ name: e.id, box: rc(e) })), leaves, greens };
-+      });
-+      ok(!m.pvHidden, tag + ': preview hidden');
-+      ok(m.d.l >= 0 && m.d.r <= m.docCw && m.d.t >= 0 && m.d.b <= m.ih, `${tag}: dialog box ${JSON.stringify(m.d)} outside the viewport`);
-+      ok(m.sw <= m.cw, `${tag}: dialog scrollWidth ${m.sw} > clientWidth ${m.cw}`);
-+      ok(m.controls.length >= 2, tag + ': no controls found');
-+      for (const k of m.controls) ok(inside(k.box, m.d), `${tag}: ${k.name} outside the dialog`);
-+      ok(inside(m.pv, m.d), `${tag}: preview ${JSON.stringify(m.pv)} outside the dialog`);
-+      for (const l of m.leaves) ok(l.colour.every((v) => v >= 230), `${tag}: ${l.name} text colour ${l.colour} below 230`);
-+      ok(m.leaves.length >= 4, tag + ': too few text leaves checked');
-+      eq(m.greens, [], tag + ' green text or background');
-+      const bg = await colours(pg, '#new-dialog');
-+      nonVacuous(bg, tag + ' dialog background', say);
-+      ok(bg.every((x) => maxc(x) <= 48), tag + ': dialog background not dark plastic');
-+      say(`${tag}: dialog ${m.d.w.toFixed(0)}x${m.d.h.toFixed(0)}, preview ${m.pv.w.toFixed(0)}x${m.pv.h.toFixed(0)} inside it, ${m.controls.length} controls inside, ${m.leaves.length} text leaves light`);
-+    };
-+    for (const [w, h] of VIEWS) {
-+      await page.setViewportSize({ width: w, height: h });
-+      await page.click('#new');
-+      await presetRowVisible(page);
-+      await page.selectOption('#preset', { index: 1 });
-+      await waitPreview(page, 'ready');
-+      await fit(page, `${w}x${h} preset`);
-+      await shot(page, dir, `new-${w}.png`);
-+      await page.click('#new-cancel');
-+    }
-+    await withPage(PAGE_URL, async (pg) => {
-+      for (const name of ['pano.png', 'portrait.png']) {
-+        for (const [w, h] of VIEWS) {
-+          await pg.setViewportSize({ width: w, height: h });
-+          await pg.click('#new');
-+          await pickFile(pg, FIX[name]);
-+          await waitPreview(pg, 'ready', FIX[name]);
-+          await fit(pg, `${w}x${h} ${name}`);
-+          await shot(pg, dir, `own-${name.replace('.png', '')}-${w}.png`);
-+          await pg.click('#new-cancel');
-+        }
-+      }
-+    });
-+  }, { url: U(S.real) });
-+
-+  // rec-requests: R4, I6. The preview asks for nothing the page did not already: same-origin images/ paths, and in-memory blob: URLs.
-+  await run('rec-requests', async ({ say }) => {
-+    need();
-+    const bad = requests.slice(recMark).filter((u) => !recAllowed(u));
-+    eq(bad, [], 'requests outside the allowed set across the rec-* checks');
-+    const a = await watched(U(S.a));
-+    try {
-+      await a.page.click('#new');
-+      await presetRowVisible(a.page);
-+      const portraitPath = new URL((await presetOptions(a.page)).find((o) => o.text === 'portrait').value).pathname;
-+      await a.page.selectOption('#preset', { label: 'portrait' });
-+      await waitPreview(a.page, 'ready');
-+      await a.page.click('#new-start');
-+      await a.page.waitForSelector('#crop-dialog[open]');
-+      await a.page.click('#crop-cancel');
-+      const images = [...new Set(a.seen.map((u) => new URL(u)).filter((u) => u.pathname.startsWith('/images/')).map((u) => u.pathname))];
-+      ok(a.seen.some((u) => new URL(u).pathname === portraitPath), 'no request for the picked preset');
-+      eq(images.filter((p) => p !== '/images/' && p !== portraitPath), [], 'other /images/ paths requested');
-+      say(`root A: picking portrait and Start requested ${a.seen.filter((u) => new URL(u).pathname === portraitPath).length} times; /images/ paths ${JSON.stringify(images)}`);
-+    } finally {
-+      await a.ctx.close();
-+    }
-+    const f = await watched(PAGE_URL);
-+    try {
-+      await f.page.click('#new');
-+      await pickFile(f.page, FIX['landscape.png']);
-+      await waitPreview(f.page, 'ready');
-+      await f.page.click('#new-start');
-+      await f.page.waitForSelector('#crop-dialog[open]');
-+      await f.page.click('#crop-cancel');
-+      eq(f.seen.filter((u) => u !== PAGE_URL && u !== 'data:,' && !u.startsWith('blob:null/')), [], 'file:// requests other than the page and blob:null/');
-+      say('file://: own file made requests ' + JSON.stringify(f.seen.map((u) => u.replace(/[0-9a-f-]{36}/, '<id>'))));
-+    } finally {
-+      await f.ctx.close();
-+    }
++  // readme-save: I10. The README says the game is saved in a cookie over HTTP and not on file://.
++  await run('readme-save', async ({ say }) => {
++    const readme = fs.readFileSync(path.join(ROOT, 'README.md'), 'utf8');
++    const at = readme.indexOf('python -m http.server 8000 --directory Site');
++    ok(at !== -1, 'run command missing');
++    const after = readme.slice(at);
++    ok(after.includes('saved in a cookie'), 'README lacks "saved in a cookie" after the run command');
++    ok(after.includes('file://'), 'README lacks "file://" after the run command');
++    say('README says the game is saved in a cookie and that file:// is not saved');
 +  }, { shoot: false });
 +
    // preset-requests: AC6. The Python servers only ever saw the page and images/.
    await run('preset-requests', async ({ say }) => {
      need();
-@@ -3419,7 +4090,10 @@ async function main() {
-       return r.stdout.split(/\r?\n/).filter(Boolean);
-     };
-     eq(git(['ls-files', 'index.html', 'settings.json', 'images/']), [], 'tracked app files at the repo root');
--    const before = git(['log', '--format=%H', BASE, '--', 'Site/index.html', 'index.html']);
-+    // AC6 is about the history before the move. Once the move commit exists, check only the commits before it: later commits
-+    // made on parallel branches to the old root index.html are merged history that `git log --follow` cannot trace by design.
-+    const move = git(['log', '--diff-filter=A', '--format=%H', 'HEAD', '--', 'Site/index.html']).pop();
-+    const before = move ? git(['log', '--format=%H', move + '^', '--', 'index.html']) : git(['log', '--format=%H', BASE, '--', 'Site/index.html', 'index.html']);
-     const follow = new Set(git(['log', '--follow', '--format=%H', '--', 'Site/index.html']));
-     ok(before.length >= 1, 'no base history for index.html');
-     eq(before.filter((h) => !follow.has(h)), [], 'base commits missing from git log --follow Site/index.html');
-@@ -3503,6 +4177,7 @@ async function main() {
-     ok(requests.length > 0, 'no requests captured');
-     const allowed = (u) => {
-       if (u === PAGE_URL || u === 'data:,') return true;
-+      if (u.startsWith('blob:')) { const inner = u.slice(5); if (inner.startsWith('null/')) return true; try { return driverOrigins.has(new URL(inner).origin); } catch (_) { return false; } }
-       let q;
-       try { q = new URL(u); } catch (_) { return false; }
-       return driverOrigins.has(q.origin) && (q.pathname === '/' || q.pathname === '/index.html' || q.pathname === '/settings.json' || q.pathname.startsWith('/images/'));

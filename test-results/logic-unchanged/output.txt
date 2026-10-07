@@ -1,8 +1,8 @@
 BASE file: Site/index.html
-move: 480 bytes, identical to 1b68c12
-shuffle: 342 bytes, identical to 1b68c12
-isSolvable: 414 bytes, identical to 1b68c12
-isSolved: 107 bytes, identical to 1b68c12
-checkWin: 223 bytes, identical to 1b68c12
-startTimer: 187 bytes, identical to 1b68c12
-setSize: 232 bytes, identical to 1b68c12
+move: 480 bytes, identical to 9579c32
+shuffle: 342 bytes, identical to 9579c32
+isSolvable: 414 bytes, identical to 9579c32
+isSolved: 107 bytes, identical to 9579c32
+checkWin: 223 bytes, identical to 9579c32
+startTimer: 187 bytes, identical to 9579c32
+setSize: 232 bytes, identical to 9579c32
