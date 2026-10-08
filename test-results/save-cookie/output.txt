@@ -1,0 +1,1 @@
+cookie 131 characters, Strict, expires in 2592000s, fields rows,cols,tiles,moves,seconds

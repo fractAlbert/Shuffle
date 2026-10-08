@@ -1,0 +1,19 @@
+garbage: fresh solved 3x3
+unsolvable: fresh solved 3x3
+duplicate tile: fresh solved 3x3
+rows 13: fresh solved 3x3
+wrong length: fresh solved 3x3
+negative moves: fresh solved 3x3
+second origin: resumed as numbers; requests ["/","/settings.json"]
+dot-dot: resumed as numbers; requests ["/","/settings.json"]
+url in a subfolder: resumed as numbers; requests ["/","/settings.json"]
+url not a picture: resumed as numbers; requests ["/","/settings.json"]
+url with a query: resumed as numbers; requests ["/","/settings.json"]
+url with a fragment: resumed as numbers; requests ["/","/settings.json"]
+url with an encoded slash: resumed as numbers; requests ["/","/settings.json"]
+url with an encoded backslash: resumed as numbers; requests ["/","/settings.json"]
+caption of 201 characters: resumed as numbers; requests ["/","/settings.json"]
+caption not a string: resumed as numbers; requests ["/","/settings.json"]
+crop with a zero width: resumed as numbers; requests ["/","/settings.json"]
+crop with a negative origin: resumed as numbers; requests ["/","/settings.json"]
+crop with a non-number: resumed as numbers; requests ["/","/settings.json"]

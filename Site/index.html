@@ -252,8 +252,10 @@ let preview = null; // picture chosen in the open New dialog, loaded for the pre
 let previewId = 0; // generation token for the pending preview load
 let previewStatus = 'none'; // load state of the picked picture: none, loading, ready or failed
 let sized = false; // true once the player changed Rows or Columns in the open New dialog
+let source = ''; // URL of the current game's preset picture, or '' for numbers and own files (saved so a reload can fetch it again)
+let restoreId = 0; // generation token for the saved preset picture being fetched again after a reload
 
-// Rebuild the board DOM and counters from the current state, then check for a win.
+// Rebuild the board DOM and counters from the current state, check for a win, then save the game.
 function render() {
   const board = document.getElementById('board');
   board.innerHTML = '';
@@ -278,6 +280,7 @@ function render() {
   document.getElementById('moves').textContent = 'Moves: ' + moves;
   document.getElementById('timer').textContent = 'Time: ' + seconds + 's';
   checkWin();
+  saveGame();
 }
 
 // Slide the tile at index into the empty space if it is orthogonally adjacent.
@@ -409,17 +412,20 @@ function startNew() {
     if (image) image.close();
     image = null;
     pieces = null;
+    source = '';
+    restoreId++;
     setSize(r, c);
   } else if ($('preset').value) {
     const id = ++decodeId;
     const name = $('preset').selectedOptions[0].textContent;
     $('new-start').disabled = true;
-    presetBlob($('preset').value)
+    const url = $('preset').value;
+    presetBlob(url)
       .then((b) => createImageBitmap(b))
-      .then((bmp) => onDecoded(bmp, id, r, c, name), () => onRejected(id));
+      .then((bmp) => onDecoded(bmp, id, r, c, name, url), () => onRejected(id));
   } else if (!file && image) {
     newDialog.close();
-    openCrop(image, r, c, caption);
+    openCrop(image, r, c, caption, source);
   } else if (!file) {
     error('Choose an image file.');
   } else {
@@ -489,10 +495,10 @@ function onListed(list, id) {
 }
 
 // Open the crop dialog for a decoded image, unless the New dialog closed or a newer decode started.
-function onDecoded(bmp, id, r, c, name) {
+function onDecoded(bmp, id, r, c, name, url = '') {
   if (!newDialog.open || id !== decodeId) { bmp.close(); return; }
   newDialog.close();
-  openCrop(bmp, r, c, name);
+  openCrop(bmp, r, c, name, url);
 }
 
 // Report an undecodable file in the New dialog, unless it closed or a newer decode started.
@@ -514,8 +520,8 @@ function cropRect(c) {
 }
 
 // Open the crop dialog for bmp at r rows by c columns: zoom 1, centred, view sized after the dialog is shown.
-function openCrop(bmp, r, c, name) {
-  crop = { bmp, name, rows: r, cols: c, z: 1, cx: bmp.width / 2, cy: bmp.height / 2, vw: 0, vh: 0 };
+function openCrop(bmp, r, c, name, url = '') {
+  crop = { bmp, name, url, rows: r, cols: c, z: 1, cx: bmp.width / 2, cy: bmp.height / 2, vw: 0, vh: 0 };
   dragFrom = null;
   cropZoom.value = '1';
   cropDialog.showModal();
@@ -580,6 +586,8 @@ function cropDone() {
   pieces = cut;
   picture = rect;
   caption = c.name;
+  source = c.url;
+  restoreId++;
   cropDialog.close();
   setSize(c.rows, c.cols);
 }
@@ -617,6 +625,9 @@ cropView.addEventListener('keydown', (e) => {
 
 const GRID_DEFAULT = { min: 3, max: 10 }; // the shipped settings.json range, used when it cannot be read
 const GRID_LIMIT = { min: 3, max: 12 }; // hard bounds that keep tiles usable at 360px
+const SAVE = 'shuffle'; // cookie name of the saved game
+const SAVE_AGE = 30 * 24 * 3600; // seconds the saved game is kept
+const SAVE_MAX = 3500; // longest cookie value written; browsers drop cookies over about 4096 bytes
 
 // Return the offered grid range from parsed settings, using the default for each missing or bad value.
 function gridRange(s) {
@@ -632,7 +643,7 @@ function gridRange(s) {
 
 // Offer exactly range next in the Rows and Columns selects; if the game lies outside it, start numbers at the nearest size.
 function applyRange(next) {
-  if (range && JSON.stringify(range) === JSON.stringify(next)) return;
+  const same = range && JSON.stringify(range) === JSON.stringify(next);
   range = next;
   const near = (v, d) => Math.min(Math.max(v, d.min), d.max);
   const r2 = near(rows, next.rows), c2 = near(cols, next.cols);
@@ -640,8 +651,11 @@ function applyRange(next) {
     if (image && !(crop && crop.bmp === image)) image.close();
     image = null;
     pieces = null;
+    source = '';
+    restoreId++;
     setSize(r2, c2);
   }
+  if (same) return;
   for (const [id, d, cur] of [['rows', next.rows, rows], ['cols', next.cols, cols]]) {
     const sel = $(id), picked = Number(sel.value);
     sel.innerHTML = '';
@@ -659,7 +673,9 @@ function loadSettings() {
 }
 
 applyRange(gridRange(null));
+restoreGame();
 render();
+window.addEventListener('pagehide', saveGame);
 const settingsReady = loadSettings().then((s) => applyRange(gridRange(s))).then(() => { if (flipped) drawBack(); if (newDialog.open) drawPreview(); });
 
 // Turn the board over: show its back (the solved puzzle in greyscale) or the front again. Game state is untouched.
@@ -814,6 +830,71 @@ function drawPreview() {
   g.fillStyle = '#fff';
   for (let i = 1; i < c; i++) g.fillRect(Math.round(x0 + i * (x1 - x0) / c), y0, t, y1 - y0);
   for (let i = 1; i < r; i++) g.fillRect(x0, Math.round(y0 + i * (y1 - y0) / r), x1 - x0, t);
+}
+
+// Save the game in a cookie so a reload resumes it: board, moves, time, and the preset picture with its crop (own files are saved as numbers).
+function saveGame() {
+  const g = { rows, cols, tiles, moves, seconds };
+  let value = encodeURIComponent(JSON.stringify(g));
+  if (source && picture && typeof caption === 'string' && caption.length <= 200) {
+    const withPicture = encodeURIComponent(JSON.stringify({ ...g, url: source, crop: [picture.sx, picture.sy, picture.cw, picture.ch], caption }));
+    if (withPicture.length <= SAVE_MAX) value = withPicture; // too long for a cookie: save the board as numbers rather than lose the write
+  }
+  document.cookie = SAVE + '=' + value + '; max-age=' + SAVE_AGE + '; samesite=strict';
+}
+
+// Resume a valid saved game from the cookie: board, moves and time at once (timer paused until the next move), a preset picture once fetched again.
+function restoreGame() {
+  const m = document.cookie.match(new RegExp('(?:^|;\\s*)' + SAVE + '=([^;]*)'));
+  if (!m) return;
+  let g;
+  try { g = JSON.parse(decodeURIComponent(m[1])); } catch (e) { return; }
+  const int = (v, lo, hi) => Number.isInteger(v) && v >= lo && v <= hi;
+  if (!g || !int(g.rows, GRID_LIMIT.min, GRID_LIMIT.max) || !int(g.cols, GRID_LIMIT.min, GRID_LIMIT.max)) return;
+  const n = g.rows * g.cols;
+  if (!Array.isArray(g.tiles) || g.tiles.length !== n || !g.tiles.every((v) => int(v, 0, n - 1)) || new Set(g.tiles).size !== n) return;
+  if (!isSolvable(g.tiles, g.cols) || !int(g.moves, 0, 1e9) || !int(g.seconds, 0, 1e9)) return;
+  rows = g.rows;
+  cols = g.cols;
+  tiles = g.tiles;
+  moves = g.moves;
+  seconds = g.seconds;
+  const url = savedPreset(g);
+  if (!url) return;
+  const [sx, sy, cw, ch] = g.crop;
+  source = url;
+  picture = { sx, sy, cw, ch };
+  caption = g.caption;
+  const id = ++restoreId;
+  presetBlob(url)
+    .then((b) => createImageBitmap(b))
+    .then((bmp) => {
+      if (id !== restoreId) { bmp.close(); return; }
+      if (sx + cw > bmp.width + 0.5 || sy + ch > bmp.height + 0.5) { bmp.close(); throw new Error('crop does not fit'); }
+      let cut;
+      try { cut = cutImage(bmp, picture, rows, cols); } catch (e) { bmp.close(); throw e; }
+      image = bmp;
+      pieces = cut;
+      render();
+      if (flipped) drawBack();
+    })
+    .catch(() => { if (id === restoreId && !pieces) { source = ''; picture = null; saveGame(); } });
+}
+
+// Return the saved preset URL if it is a picture directly inside this page's images/ with a usable crop and caption, else ''.
+function savedPreset(g) {
+  if (typeof g.url !== 'string' || typeof g.caption !== 'string' || g.caption.length > 200) return '';
+  if (!Array.isArray(g.crop) || g.crop.length !== 4 || !g.crop.every((v) => Number.isFinite(v) && v >= 0) || !(g.crop[2] > 0 && g.crop[3] > 0)) return '';
+  if (location.protocol !== 'http:' && location.protocol !== 'https:') return '';
+  let u;
+  try { u = new URL(g.url); } catch (e) { return ''; }
+  const dir = new URL('images/', location.href).pathname;
+  if (u.origin !== location.origin || !u.pathname.startsWith(dir) || u.search || u.hash) return '';
+  const rest = u.pathname.slice(dir.length);
+  let file;
+  try { file = decodeURIComponent(rest); } catch (e) { return ''; }
+  if (file.includes('/') || file.includes('\\')) return '';
+  return rest && !rest.includes('/') && /\.(jpe?g|png|webp|gif|avif)$/i.test(rest) ? u.href : '';
 }
 </script>
 </body>

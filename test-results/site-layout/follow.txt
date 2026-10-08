@@ -1,3 +1,4 @@
+77afe1d feat: save the game in a cookie so a reload resumes it (#21)
 1a4fdfc refactor: move the app into Site/ (#20)
 f2bec1e feat: flip the board to see its back, the solved puzzle in greyscale (#15)
 8a4daf6 feat: grid size range from settings.json, up to 10x10 (#14)

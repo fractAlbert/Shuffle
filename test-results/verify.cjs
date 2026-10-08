@@ -1,4 +1,4 @@
-// Verification driver (test tooling, not app code). See plan section 6 of issues #1, #2, #3, #4, #5, #7, #13, #14, #15, #17, #18 and #20.
+// Verification driver (test tooling, not app code). See plan section 6 of issues #1, #2, #3, #4, #5, #7, #13, #14, #15, #17, #18, #20 and #21.
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -1204,7 +1204,7 @@ async function main() {
 
   await run('code-shape', async ({ say }) => {
     const html = fs.readFileSync(path.join(SITE, 'index.html'), 'utf8');
-    for (const f of ['render', 'move', 'setSize', 'shuffle', 'isSolvable', 'isSolved', 'checkWin', 'openNew', 'startNew', 'onDecoded', 'onRejected', 'cropRect', 'openCrop', 'drawCrop', 'moveCrop', 'cutImage', 'cropDone', 'loadPresets', 'parseListing', 'onListed', 'gridRange', 'applyRange', 'loadSettings', 'flip', 'drawBack', 'greyscale', 'isLocked', 'presetBlob', 'recommend', 'setPreview', 'loadPreview', 'drawPreview']) {
+    for (const f of ['render', 'move', 'setSize', 'shuffle', 'isSolvable', 'isSolved', 'checkWin', 'openNew', 'startNew', 'onDecoded', 'onRejected', 'cropRect', 'openCrop', 'drawCrop', 'moveCrop', 'cutImage', 'cropDone', 'loadPresets', 'parseListing', 'onListed', 'gridRange', 'applyRange', 'loadSettings', 'flip', 'drawBack', 'greyscale', 'isLocked', 'presetBlob', 'recommend', 'setPreview', 'loadPreview', 'drawPreview', 'saveGame', 'restoreGame', 'savedPreset']) {
       const re = new RegExp('//[^\\n]*\\r?\\n\\s*function ' + f + '\\b');
       ok(re.test(html), `function ${f} missing or has no comment above`);
       say(`function ${f}: present with comment`);
@@ -3734,6 +3734,550 @@ async function main() {
     } finally {
       await f.ctx.close();
     }
+  }, { shoot: false });
+
+  // ---- #21 save the game in a cookie so a reload resumes it. Expected values come from plan #21 sections 2 and 6, never from the app's code. ----
+  const LONG = 'é'.repeat(200);
+  const oneSlide = (n) => { const t = solvedOf(n); t[n - 2] = 0; t[n - 1] = n - 1; return t; };
+  let saveErr = null;
+  try {
+    need();
+    const dir = settingsRoot('s-save', S_FLIP);
+    fs.writeFileSync(path.join(dir, 'images', 'landscape.png'), FIX['landscape.png'].buffer);
+    fs.writeFileSync(path.join(dir, 'images', 'portrait.png'), FIX['portrait.png'].buffer);
+    S['s-save'] = await serve(dir, settingsProbe(S_FLIP));
+  } catch (e) { saveErr = e.message; }
+  const needSave = () => { need(); if (saveErr) throw new Error('s-save server failed to start: ' + saveErr); };
+  // Page listeners that feed the shared request and console capture (and the page's own request list).
+  const track = (page, seen = []) => {
+    page.on('request', (r) => { requests.push(r.url()); seen.push(r.url()); });
+    page.on('pageerror', (e) => errors.push({ text: 'pageerror: ' + e.message, url: '' }));
+    page.on('console', (m) => { if (m.type() === 'error') errors.push({ text: 'console: ' + m.text(), url: m.location().url }); });
+    return seen;
+  };
+  // A fresh context with the shuffle cookie planted before the page loads (cookie: an object, a raw string or null); setup(ctx) may route requests first.
+  async function planted(pageUrl, cookie, setup) {
+    const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+    if (cookie !== null) await ctx.addCookies([{ name: 'shuffle', value: typeof cookie === 'string' ? cookie : encodeURIComponent(JSON.stringify(cookie)), domain: '127.0.0.1', path: '/' }]);
+    if (setup) await setup(ctx);
+    const page = await ctx.newPage();
+    const seen = track(page);
+    await page.goto(pageUrl);
+    return { ctx, page, seen };
+  }
+  // The shuffle cookie of a context as the browser stores it, with its decoded JSON; null when there is none.
+  const cookieOf = async (ctx) => {
+    const all = (await ctx.cookies()).filter((x) => x.name === 'shuffle');
+    return all.length ? { count: all.length, cookie: all[0], json: JSON.parse(decodeURIComponent(all[0].value)) } : null;
+  };
+  // The visible game: board labels, moves, timer, win banner, lock and aria-disabled tiles.
+  const saveState = async (page) => ({
+    labels: await imgBoard(page), moves: await movesOf(page), timer: await timerOf(page),
+    msg: await page.$eval('#message', (e) => !e.hidden), locked: await page.$eval('#board', (e) => e.classList.contains('locked')),
+    disabled: await page.$$eval('#board .tile:not(.empty)', (els) => els.filter((e) => e.getAttribute('aria-disabled') === 'true').length),
+  });
+  // Throw unless b (after a reload) is a: same board, moves, banner and lock; the timer is a's, or a's + 1 (a tick can land before the save).
+  function sameSave(a, b, tag) {
+    eq(b.labels, a.labels, tag + ' labels');
+    eq(b.moves, a.moves, tag + ' moves');
+    eq(b.msg, a.msg, tag + ' banner');
+    eq(b.locked, a.locked, tag + ' locked');
+    eq(b.disabled, a.disabled, tag + ' aria-disabled tiles');
+    ok(b.timer >= a.timer && b.timer <= a.timer + 1, `${tag} timer ${b.timer}, before the reload ${a.timer}`);
+  }
+  // until() for an async predicate.
+  const waitFor = async (fn, what, ms = 8000) => { const t0 = Date.now(); while (!(await fn())) { if (Date.now() - t0 > ms) throw new Error('timed out waiting for ' + what); await sleep(50); } };
+  // How many board tiles show a picture piece.
+  const imageTiles = (page) => page.$$eval('#board .tile.image', (e) => e.length);
+  // A tile beside the gap on a board of c columns, so a click on it is a legal slide.
+  const legalAny = async (page, c) => { const e = (await imgBoard(page)).indexOf('_'); return e % c ? e - 1 : e + 1; };
+  // New -> pick the preset, then set the size (the pick recommends one) -> Start; waits for the crop dialog.
+  const presetUI = async (page, r, c, label) => {
+    await page.click('#new');
+    await presetRowVisible(page);
+    await page.selectOption('#preset', { label });
+    await waitPreview(page, 'ready');
+    await page.selectOption('#rows', String(r));
+    await page.selectOption('#cols', String(c));
+    await page.click('#new-start');
+    await page.waitForSelector('#crop-dialog[open]');
+  };
+  // Reload, wait for the app, and read the visible game.
+  const reloadAndRead = async (page) => { await page.reload(); await ready(page); return saveState(page); };
+
+  // save-numbers: R1, I4. A reload resumes the numbers game with its moves and time; the timer is paused until the next slide.
+  await run('save-numbers', async ({ page, dir, say }) => {
+    need();
+    await click(page, 7);
+    await click(page, 6);
+    await waitFor(async () => (await timerOf(page)) >= 2, 'timer to reach 2s');
+    const a = await saveState(page);
+    eq(a.moves, 2, '(a) moves before');
+    ok(a.labels.join() !== SOLVED.join(), '(a) board still solved');
+    await page.reload();
+    const b = await saveState(page);
+    sameSave(a, b, '(a) after reload');
+    say(`(a) before ${JSON.stringify(a)}; after ${JSON.stringify(b)}`);
+    await sleep(1500);
+    eq(await timerOf(page), b.timer, '(b) timer moved while paused');
+    await click(page, await legalAny(page, 3));
+    eq(await movesOf(page), b.moves + 1, '(b) moves after one slide');
+    await sleep(1200);
+    ok((await timerOf(page)) >= b.timer + 1, `(b) timer ${await timerOf(page)} did not resume from ${b.timer}`);
+    say('(b) paused 1.5s, then a slide resumed it');
+    const c0 = await saveState(page);
+    const url = page.url();
+    await page.close({ runBeforeUnload: true });
+    const p2 = await page.context().newPage();
+    track(p2);
+    await p2.goto(url);
+    const c1 = await saveState(p2);
+    sameSave(c0, c1, '(c) new page');
+    await shot(p2, dir, 'screenshot.png');
+    say(`(c) before ${JSON.stringify(c0)}; new page ${JSON.stringify(c1)}`);
+  }, { url: U(S.a), shoot: false });
+
+  // save-changes: R1. Shuffle, a new numbers game and a win each survive a reload.
+  await run('save-changes', async ({ page, say }) => {
+    need();
+    await click(page, 7);
+    await page.click('#shuffle');
+    let a = await saveState(page);
+    sameSave(a, await reloadAndRead(page), '(a) Shuffle');
+    await gridOf(page, 3, 3, '(a)');
+    await setSizeUI(page, 4, 5);
+    await click(page, 18);
+    a = await saveState(page);
+    eq(a.labels.length, 20, '(b) cells before');
+    sameSave(a, await reloadAndRead(page), '(b) New 4x5');
+    await gridOf(page, 4, 5, '(b)');
+    await setSizeUI(page, 3, 3);
+    await click(page, 7);
+    await click(page, 8);
+    a = await saveState(page);
+    ok(a.msg && a.locked, '(c) not won before the reload');
+    sameSave(a, await reloadAndRead(page), '(c) win');
+    await gridOf(page, 3, 3, '(c)');
+    say('Shuffle, New 4x5 with a slide and a 3x3 win each came back after a reload');
+  }, { url: U(S.a) });
+
+  // save-won: I5. A solved game reloads solved: banner, locked board, frozen timer, until Shuffle.
+  await run('save-won', async ({ page, dir, say }) => {
+    need();
+    await click(page, 7);
+    await click(page, 8);
+    const a = await saveState(page);
+    ok(a.msg && a.locked && a.moves === 2, 'not won before the reload: ' + JSON.stringify(a));
+    const b = await reloadAndRead(page);
+    sameSave(a, b, 'after reload');
+    ok(b.msg && b.locked, 'banner or lock missing after the reload');
+    eq(b.disabled, 8, 'aria-disabled tiles');
+    await shot(page, dir, 'after-reload.png');
+    for (let i = 0; i < 9; i++) await fclick(page, i);
+    await sleep(1500);
+    const c = await saveState(page);
+    eq({ ...c, timer: 0 }, { ...b, timer: 0 }, 'state after clicks on the locked board');
+    eq(c.timer, b.timer, 'timer moved on the won board');
+    await page.click('#shuffle');
+    const d = await saveState(page);
+    ok(!d.msg && !d.locked, 'Shuffle did not unlock: ' + JSON.stringify(d));
+    say(`won board reloaded as ${JSON.stringify(b)}; clicks ignored; Shuffle unlocked`);
+  }, { url: U(S.a) });
+
+  // save-preset: R2, I2. A preset picture game resumes with the same picture and crop; the re-crop path keeps the picture.
+  await run('save-preset', async ({ page, dir, say }) => {
+    needSave();
+    const fx = FIX['landscape.png'];
+    await presetUI(page, 3, 4, 'landscape');
+    await setZoom(page, 1.5);
+    await page.focus('#crop-view');
+    for (let i = 0; i < 3; i++) await page.keyboard.press('ArrowRight');
+    const o0 = cropOracle(fx.W, fx.H, 3, 4, 1.5, 300, 200);
+    const o = cropOracle(fx.W, fx.H, 3, 4, 1.5, 300 - 3 * 0.05 * o0.cw, 200);
+    await cropDoneUI(page);
+    await page.click('#shuffle');
+    await click(page, await legalAny(page, 4));
+    const a = await saveState(page);
+    eq(a.moves, 1, 'moves before');
+    await expectPieces(page, fx, 3, 4, o, 'before the reload');
+    await shot(page, dir, 'before.png');
+    await page.reload();
+    await page.waitForSelector('#board .tile.image');
+    const b = await saveState(page);
+    sameSave(a, b, '(a) after reload');
+    const pc = await expectPieces(page, fx, 3, 4, o, 'after the reload');
+    await shot(page, dir, 'after.png');
+    await flipUI(page);
+    eq((await backGeom(page)).capText, 'landscape', 'back caption after the reload');
+    await flipUI(page);
+    say(`(a) ${JSON.stringify(b)}; ${pc.count} pieces, worst error ${pc.worst.toFixed(2)}px against the moved crop`);
+    // (e) re-crop path
+    await page.click('#new');
+    await page.click('#new-start');
+    await page.waitForSelector('#crop-dialog[open]');
+    await cropDoneUI(page);
+    ok((await cookieOf(page.context())).json.url.endsWith('/images/landscape.png'), '(e) cookie lost the picture after the re-crop');
+    await page.reload();
+    await page.waitForSelector('#board .tile.image');
+    eq(await imageTiles(page), 11, '(e) image tiles after the second reload');
+    ok((await cookieOf(page.context())).json.url.endsWith('/images/landscape.png'), '(e) cookie url after the second reload');
+    say('(e) re-crop at the default crop, then a reload: image tiles back, cookie still has the landscape url');
+  }, { url: U(S['s-save']) });
+
+  // save-preset-switch: I2. The picture saved is the one Start fetched, even if the Picture select changes while it loads.
+  await run('save-preset-switch', async ({ page, say }) => {
+    needSave();
+    await ready(page);
+    await page.click('#new');
+    await presetRowVisible(page);
+    await page.selectOption('#preset', { label: 'landscape' });
+    await waitPreview(page, 'ready');
+    let release, hit = false;
+    const gate = new Promise((r) => { release = r; });
+    await page.route('**/images/landscape.png', async (route) => { hit = true; await gate; await route.continue(); });
+    try {
+      await page.click('#new-start');
+      await waitFor(() => hit, 'the held landscape request');
+      await page.selectOption('#preset', { label: 'portrait' });
+      await waitPreview(page, 'ready');
+    } finally {
+      release();
+    }
+    await page.waitForSelector('#crop-dialog[open]');
+    await cropDoneUI(page);
+    const ck = await cookieOf(page.context());
+    ok(ck.json.url && ck.json.url.endsWith('/images/landscape.png'), 'cookie url is ' + ck.json.url + ', not the landscape that was cropped');
+    say('Start on landscape, Picture changed to portrait while the fetch was held: cookie url ' + ck.json.url);
+  }, { url: U(S['s-save']) });
+
+  // save-preset-real: R2. The first real preset resumes as its picture and its cookie fits.
+  await run('save-preset-real', async ({ page, say }) => {
+    need();
+    await ready(page);
+    await page.click('#new');
+    await presetRowVisible(page);
+    const opts = await presetOptions(page);
+    ok(opts.length >= 1, 'no real presets');
+    await page.selectOption('#preset', { label: opts[0].text });
+    await waitPreview(page, 'ready');
+    const size = await selectsOf(page);
+    await page.click('#new-start');
+    await page.waitForSelector('#crop-dialog[open]');
+    await cropDoneUI(page);
+    await page.click('#shuffle');
+    const a = await saveState(page);
+    await page.reload();
+    await page.waitForSelector('#board .tile.image');
+    sameSave(a, await saveState(page), 'after reload');
+    eq(await imageTiles(page), size[0] * size[1] - 1, 'image tiles');
+    await flipUI(page);
+    eq((await backGeom(page)).capText, opts[0].text, 'caption');
+    const len = await page.evaluate(() => document.cookie.length);
+    ok(len <= 3500 + 'shuffle='.length, 'document.cookie is ' + len + ' characters');
+    say(`${opts[0].text} at ${size.join('x')}: image tiles back, cookie ${len} characters`);
+  }, { url: U(S.real) });
+
+  // save-own-file: I3-A. An own-file game resumes as numbers: same order, moves and time.
+  await run('save-own-file', async ({ page, say }) => {
+    need();
+    await newImageUI(page, 3, 3);
+    await cropDoneUI(page);
+    await page.click('#shuffle');
+    await click(page, await legalAny(page, 3));
+    const a = await saveState(page);
+    eq(a.moves, 1, 'moves before');
+    sameSave(a, await reloadAndRead(page), 'after reload');
+    eq(await imageTiles(page), 0, 'image tiles after the reload');
+    await flipUI(page);
+    eq((await backGeom(page)).capText, `Shuffle 3${TIMES}3`, 'back shows the number grid');
+    say('own file game came back as numbers in the same order: ' + JSON.stringify(a.labels));
+  }, { url: U(S.a) });
+
+  // save-preset-missing: I6. A preset that cannot load falls back to numbers and the cookie drops the picture.
+  await run('save-preset-missing', async ({ page, say }) => {
+    needSave();
+    const imgPath = path.join(S['s-save'].root, 'images', 'landscape.png');
+    await page.route('**/images/landscape.png', (r) => r.continue()); // an intercepted page bypasses the HTTP cache, so the deleted file is really asked for again
+    try {
+      await presetUI(page, 3, 3, 'landscape');
+      await cropDoneUI(page);
+      await page.click('#shuffle');
+      await click(page, await legalAny(page, 3));
+      const a = await saveState(page);
+      ok((await cookieOf(page.context())).json.url, '(a) no picture in the cookie before');
+      fs.rmSync(imgPath);
+      expectConsole(S['s-save'].origin + '/images/landscape.png');
+      await page.reload();
+      const b = await saveState(page);
+      sameSave(a, b, '(a) after reload');
+      await sleep(500);
+      eq(await imageTiles(page), 0, '(a) image tiles although the file is gone');
+      await waitFor(async () => !('url' in (await cookieOf(page.context())).json), '(a) the cookie to drop the url');
+      say('(a) file deleted: numbers in the same order, cookie without url');
+    } finally {
+      fs.writeFileSync(imgPath, FIX['landscape.png'].buffer);
+    }
+    const g = await planted(U(S['s-save']), { rows: 3, cols: 3, tiles: oneSlide(9), moves: 1, seconds: 0, url: S['s-save'].origin + '/images/landscape.png', crop: [0, 0, 5000, 5000], caption: 'landscape' });
+    try {
+      await ready(g.page);
+      await sleep(1000);
+      eq(await imgBoard(g.page), ['1', '2', '3', '4', '5', '6', '7', '_', '8'], '(b) board');
+      eq(await imageTiles(g.page), 0, '(b) image tiles for an oversized crop');
+      await waitFor(async () => !('url' in (await cookieOf(g.ctx)).json), '(b) the cookie to drop the url');
+      say('(b) crop larger than the picture: numbers, cookie without url');
+    } finally {
+      await g.ctx.close();
+    }
+  }, { url: U(S['s-save']) });
+
+  // save-race: I6. A new game started while the saved picture is being fetched again wins.
+  await run('save-race', async ({ say }) => {
+    needSave();
+    const o = cropOracle(600, 400, 3, 4, 1, 300, 200);
+    const cookie = { rows: 3, cols: 4, tiles: oneSlide(12), moves: 1, seconds: 0, url: S['s-save'].origin + '/images/landscape.png', crop: [o.sx, o.sy, o.cw, o.ch], caption: 'landscape' };
+    let release;
+    const gate = new Promise((r) => { release = r; });
+    const hold = (ctx) => ctx.route('**/images/landscape.png', async (route) => { await gate; await route.continue(); });
+    const g = await planted(U(S['s-save']), cookie, hold);
+    try {
+      await ready(g.page);
+      eq(await imageTiles(g.page), 0, '(a) image tiles before the picture arrives');
+      await setSizeUI(g.page, 4, 3);
+      release();
+      await sleep(1000);
+      eq(await imageTiles(g.page), 0, '(a) late picture drawn over the new game');
+      await gridOf(g.page, 4, 3, '(a)');
+      ok(!('url' in (await cookieOf(g.ctx)).json), '(a) cookie still has the url');
+      say('(a) new numbers game 4x3 while the picture was held: still numbers, cookie without url');
+    } finally {
+      release();
+      await g.ctx.close();
+    }
+    const h = await planted(U(S['s-save']), cookie);
+    try {
+      await h.page.waitForSelector('#board .tile.image');
+      eq(await imageTiles(h.page), 11, '(b) image tiles');
+      say('(b) no new game: the picture arrives and 11 image tiles show');
+    } finally {
+      await h.ctx.close();
+    }
+  }, { shoot: false });
+
+  // save-tamper: R3, I7. Bad saves are ignored; a picture URL off the page's images/ is never fetched.
+  await run('save-tamper', async ({ say }) => {
+    need();
+    const base = { rows: 3, cols: 3, tiles: oneSlide(9), moves: 1, seconds: 0 };
+    const bad = [
+      ['garbage', '%7Bnot-json'],
+      ['unsolvable', { ...base, tiles: [2, 1, 3, 4, 5, 6, 7, 8, 0] }],
+      ['duplicate tile', { ...base, tiles: [1, 1, 3, 4, 5, 6, 7, 0, 8] }],
+      ['rows 13', { ...base, rows: 13, tiles: oneSlide(39) }],
+      ['wrong length', { ...base, tiles: [1, 2, 3, 4, 5, 6, 7, 0] }],
+      ['negative moves', { ...base, moves: -1 }],
+    ];
+    for (const [name, ck] of bad) {
+      const g = await planted(U(S.a), ck);
+      try {
+        await ready(g.page);
+        await sleep(300);
+        eq(await board(g.page), SOLVED, name + ' board');
+        eq(await movesOf(g.page), 0, name + ' moves');
+        say(`${name}: fresh solved 3x3`);
+      } finally {
+        await g.ctx.close();
+      }
+    }
+    bad.push(['seconds 1.5', { ...base, seconds: 1.5 }]);
+    const crop = [0, 0, 600, 400];
+    const mark = cn.requests.length;
+    for (const [name, u] of [['second origin', cn.origin + '/images/ok.png'], ['dot-dot', S.a.origin + '/images/%2E%2E/settings.json']]) {
+      const g = await planted(U(S.a), { ...base, url: u, crop, caption: 'x' });
+      try {
+        await ready(g.page);
+        await sleep(800);
+        eq(await imgBoard(g.page), ['1', '2', '3', '4', '5', '6', '7', '_', '8'], name + ' board');
+        eq(await imageTiles(g.page), 0, name + ' image tiles');
+        const paths = [...new Set(g.seen.map((x) => new URL(x).pathname))];
+        eq(paths.filter((p) => p !== '/' && p !== '/settings.json'), [], name + ' paths requested');
+        say(`${name}: resumed as numbers; requests ${JSON.stringify(g.seen.map((x) => new URL(x).pathname))}`);
+      } finally {
+        await g.ctx.close();
+      }
+    }
+    eq(cn.requests.slice(mark), [], 'requests that reached the second origin');
+    // Picture saves that break one rule each: the board resumes as numbers and nothing but the page and settings.json is requested.
+    const okUrl = S.a.origin + '/images/x.png';
+    const pic = (name, over) => [name, { ...base, url: okUrl, crop, caption: 'x', ...over }];
+    const planted2 = [
+      pic('url in a subfolder', { url: S.a.origin + '/images/sub/x.png' }),
+      pic('url not a picture', { url: S.a.origin + '/images/x.txt' }),
+      pic('url with a query', { url: S.a.origin + '/images/x.png?a' }),
+      pic('url with a fragment', { url: S.a.origin + '/images/x.png#a' }),
+      pic('url with an encoded slash', { url: S.a.origin + '/images/..%2Fsettings.png' }),
+      pic('url with an encoded backslash', { url: S.a.origin + '/images/..%5Csettings.png' }),
+      pic('caption of 201 characters', { caption: 'x'.repeat(201) }),
+      pic('caption not a string', { caption: 5 }),
+      pic('crop with a zero width', { crop: [0, 0, 0, 10] }),
+      pic('crop with a negative origin', { crop: [-1, 0, 10, 10] }),
+      pic('crop with a non-number', { crop: [0, 0, 'a', 10] }),
+    ];
+    for (const [name, ck] of planted2) {
+      const g = await planted(U(S.a), ck);
+      try {
+        await ready(g.page);
+        await sleep(800);
+        eq(await imgBoard(g.page), ['1', '2', '3', '4', '5', '6', '7', '_', '8'], name + ' board');
+        eq(await imageTiles(g.page), 0, name + ' image tiles');
+        const paths = [...new Set(g.seen.map((x) => new URL(x).pathname))];
+        eq(paths.filter((p) => p !== '/' && p !== '/settings.json'), [], name + ' paths requested');
+        say(name + ': resumed as numbers; requests ' + JSON.stringify(g.seen.map((x) => new URL(x).pathname)));
+      } finally {
+        await g.ctx.close();
+      }
+    }
+  }, { shoot: false });
+
+  // save-range: I9. A saved size outside the offered range starts a numbers game at the nearest size and Start still works.
+  await run('save-range', async ({ say }) => {
+    need();
+    if (!realFiles.length) throw new Error('no real preset');
+    const url = S.real.origin + '/images/' + encodeURIComponent(realFiles[0]);
+    for (const n of [11, 12]) {
+      const g = await planted(U(S.real), { rows: n, cols: n, tiles: oneSlide(n * n), moves: 1, seconds: 0, url, crop: [0, 0, 100, 100], caption: 'x' });
+      try {
+        await ready(g.page);
+        await sleep(1500);
+        eq((await board(g.page)).length, 100, `(a) ${n}x${n} cells`);
+        await gridOf(g.page, 10, 10, `(a) ${n}x${n}`);
+        eq(await imageTiles(g.page), 0, `(a) ${n}x${n} image tiles`);
+        const ck = await cookieOf(g.ctx);
+        ok(!('url' in ck.json) && ck.json.rows === 10 && ck.json.cols === 10, `(a) ${n}x${n} cookie ${JSON.stringify(ck.json).slice(0, 80)}`);
+        await g.page.click('#new');
+        eq(await selectsOf(g.page), [10, 10], `(a) ${n}x${n} New prefill`);
+        await g.page.check('#kind-numbers');
+        await g.page.click('#new-start');
+        await g.page.waitForFunction(() => !document.getElementById('new-dialog').open);
+        await gridOf(g.page, 10, 10, `(a) ${n}x${n} after Start`);
+        say(`(a) ${n}x${n} save on 3..10: 10x10 numbers, cookie without url, New prefills 10/10, Start gives 10x10`);
+      } finally {
+        await g.ctx.close();
+      }
+    }
+    ok(S['s-rec'], '(b) the s-rec server is missing');
+    const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+    try {
+      const p1 = await ctx.newPage();
+      track(p1);
+      await p1.goto(U(S['s-save']));
+      await ready(p1);
+      await presetUI(p1, 3, 3, 'landscape');
+      await cropDoneUI(p1);
+      await p1.click('#shuffle');
+      await click(p1, await legalAny(p1, 3));
+      ok((await cookieOf(ctx)).json.url, '(b) no picture saved at 3x3');
+      const p2 = await ctx.newPage();
+      track(p2);
+      await p2.goto(U(S['s-rec']));
+      await ready(p2);
+      await sleep(1000);
+      await gridOf(p2, 4, 3, '(b)');
+      eq(await imageTiles(p2), 0, '(b) image tiles');
+      ok(!('url' in (await cookieOf(ctx)).json), '(b) cookie still has the url');
+      say('(b) 3x3 preset game, then a rows 4..8 server on the same host: numbers 4x3, cookie without url');
+    } finally {
+      await ctx.close();
+    }
+  }, { shoot: false });
+
+  // The 200-character name is served by the canned server: as a file under the temp root it passes Windows' 260-character path limit, which python cannot open.
+  // The canned server must be set up before run(): the page loads before fn runs.
+  const capOld = { listing: cn && cn.listing, settings: cn && cn.settings, extra: cn && cn.extra };
+  if (cn) {
+    cn.listing = () => ({ body: listingPage([encodeURIComponent(LONG) + '.png']) });
+    cn.settings = () => ({ body: S_FLIP });
+    cn.extra = (req, res, p) => {
+      if (p !== '/images/' + encodeURIComponent(LONG) + '.png') return false;
+      res.writeHead(200, { 'Content-Type': 'image/png' });
+      res.end(FIX['landscape.png'].buffer);
+      return true;
+    };
+  }
+  // save-cookie-cap: I8. A save too long for a cookie keeps the board as numbers instead of being dropped.
+  await run('save-cookie-cap', async ({ page, say }) => {
+    need();
+    ok(cn, 'canned server missing');
+    await ready(page);
+    await presetUI(page, 12, 12, LONG);
+    await cropDoneUI(page);
+    await page.click('#shuffle');
+    await click(page, await legalAny(page, 12));
+    const a = await saveState(page);
+    eq(a.moves, 1, 'moves before');
+    const ck = await cookieOf(page.context());
+    ok(ck.cookie.value.length <= 3500, 'cookie value is ' + ck.cookie.value.length + ' characters');
+    ok(!('url' in ck.json), 'cookie kept the url');
+    eq(ck.json.moves, 1, 'cookie moves (the write was dropped?)');
+    // Estimate of the value had the picture been kept: the saved one plus the url and the caption, each percent-encoded as JSON.
+    const est = ck.cookie.value.length + encodeURIComponent(JSON.stringify(LONG)).length + encodeURIComponent(JSON.stringify(cn.origin + '/images/' + encodeURIComponent(LONG) + '.png')).length;
+    ok(est > 3500, 'the uncapped value would be only about ' + est + ' characters, so the cap is not what dropped the picture');
+    sameSave(a, await reloadAndRead(page), 'after reload');
+    eq(await imageTiles(page), 0, 'image tiles after the reload');
+    ok(!('url' in (await cookieOf(page.context())).json), 'cookie url after the reload');
+    say(`12x12 preset with a 200-character name (within the 200 rule): cookie ${ck.cookie.value.length} characters, uncapped about ${est}, no url, resumed as numbers`);
+  }, { url: cn ? cn.origin + '/' : undefined });
+  if (cn) Object.assign(cn, capOld);
+
+  // save-file: I1-A. Chrome keeps no cookies on file:// pages, so a reload starts fresh there (documented).
+  await run('save-file', async ({ page, say }) => {
+    await click(page, 7);
+    eq(await movesOf(page), 1, 'moves before');
+    await page.reload();
+    eq(await board(page), SOLVED, 'board after the reload');
+    eq(await movesOf(page), 0, 'moves after the reload');
+    say('file://: no cookie, the reload starts a fresh solved 3x3');
+  });
+
+  // save-scope: I2. Flip and an open New dialog are not saved.
+  await run('save-scope', async ({ page, say }) => {
+    need();
+    await click(page, 7);
+    await flipUI(page);
+    eq(await page.getAttribute('#flip', 'aria-pressed'), 'true', 'flipped before');
+    await page.reload();
+    eq(await page.getAttribute('#flip', 'aria-pressed'), 'false', 'aria-pressed after the reload');
+    await page.click('#new');
+    await page.selectOption('#rows', '5');
+    const a = await saveState(page);
+    await page.reload();
+    ok(!(await isOpen(page, 'new-dialog')), 'New dialog open after the reload');
+    sameSave(a, await saveState(page), 'game after the reload');
+    say('flip and the open New dialog were not saved; the game was');
+  }, { url: U(S.a) });
+
+  // save-cookie: I8. One cookie, strict, 30 days, the I2 fields only.
+  await run('save-cookie', async ({ page, say }) => {
+    need();
+    await click(page, 7);
+    const ck = await cookieOf(page.context());
+    eq(ck.count, 1, 'shuffle cookies');
+    eq(ck.cookie.sameSite, 'Strict', 'sameSite');
+    eq(ck.cookie.path, '/', 'path');
+    const left = ck.cookie.expires - Date.now() / 1000;
+    ok(Math.abs(left - 30 * 24 * 3600) <= 60, 'expires in ' + left + 's');
+    eq(Object.keys(ck.json).sort(), ['cols', 'moves', 'rows', 'seconds', 'tiles'], 'fields');
+    eq(ck.json.tiles, oneSlide(9), 'tiles');
+    say(`cookie ${ck.cookie.value.length} characters, Strict, expires in ${Math.round(left)}s, fields ${Object.keys(ck.json)}`);
+  }, { url: U(S.a) });
+
+  // readme-save: I10. The README says the game is saved in a cookie over HTTP and not on file://.
+  await run('readme-save', async ({ say }) => {
+    const readme = fs.readFileSync(path.join(ROOT, 'README.md'), 'utf8');
+    const at = readme.indexOf('python -m http.server 8000 --directory Site');
+    ok(at !== -1, 'run command missing');
+    const after = readme.slice(at);
+    ok(after.includes('saved in a cookie'), 'README lacks "saved in a cookie" after the run command');
+    ok(after.includes('file://'), 'README lacks "file://" after the run command');
+    say('README says the game is saved in a cookie and that file:// is not saved');
   }, { shoot: false });
 
   // preset-requests: AC6. The Python servers only ever saw the page and images/.

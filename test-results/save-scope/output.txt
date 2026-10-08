@@ -1,0 +1,1 @@
+flip and the open New dialog were not saved; the game was

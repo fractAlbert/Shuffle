@@ -1,0 +1,1 @@
+Start on landscape, Picture changed to portrait while the fetch was held: cookie url http://127.0.0.1:57255/images/landscape.png

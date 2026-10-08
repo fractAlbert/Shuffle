@@ -1,0 +1,2 @@
+(a) {"labels":["10","5","9","11","6","8","1","7","2","4","_","3"],"moves":1,"timer":0,"msg":false,"locked":false,"disabled":0}; 11 pieces, worst error 0.58px against the moved crop
+(e) re-crop at the default crop, then a reload: image tiles back, cookie still has the landscape url
